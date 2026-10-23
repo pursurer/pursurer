@@ -1,6 +1,6 @@
 <picture>
-  <source media="(max-width: 640px)" srcset="https://github.com/pursurer/pursurer/raw/main/assets/song-of-hero-mobile.svg?v=2">
-  <img src="https://github.com/pursurer/pursurer/raw/main/assets/song-of-hero.svg?v=2" alt="Song of Hero. Haojie Song, an AI explorer at the dawn of a magnificent age." width="100%">
+  <source media="(max-width: 640px)" srcset="https://github.com/pursurer/pursurer/raw/main/assets/song-of-hero-mobile.svg?v=3">
+  <img src="https://github.com/pursurer/pursurer/raw/main/assets/song-of-hero.svg?v=3" alt="Song of Hero. Haojie Song, an AI explorer at the dawn of a magnificent age." width="100%">
 </picture>
 
 > [!IMPORTANT]
