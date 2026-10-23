@@ -1,12 +1,11 @@
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:4f46e5,100:06b6d4&height=150&section=header&text=Haojie%20Song&fontColor=ffffff&fontSize=44&fontAlignY=38" width="100%" />
+<img src="assets/song-of-hero.svg" alt="Song of Hero. Haojie Song, an AI explorer at the dawn of a magnificent age." width="100%">
 
-<p align="center"><img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=20&pause=1200&color=4F46E5&center=true&vCenter=true&width=560&lines=Building+agent+skills+for+Codex+and+Claude+Code;Research+tooling+for+AI+papers;AI+undergrad+%40+Chang'an+University+%C3%97+EPITA" alt="Typing intro" /></p>
+**I believe** we are living through the most magnificent transformation in human history.<br>
+**I believe** one determined builder with AI can change the world.<br>
+**So I build**, every day: agent skills and research tools that do real work. Creator of [seedance-production-workflow](https://github.com/pursurer/seedance-awesome-director), an Agent Skill for Codex and Claude Code that also ships in [awesome-seedance](https://github.com/LearnPrompt/awesome-seedance) (2.2k★).
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Paris-EPITA-4f46e5?style=flat-square" />
-  <img src="https://img.shields.io/badge/Focus-AI%20agents-06b6d4?style=flat-square" />
-  <img src="https://img.shields.io/badge/Looking%20for-AI%20engineering%20internship-22c55e?style=flat-square" />
-</p>
+> [!TIP]
+> **Looking for an AI engineering internship.** [LinkedIn](https://www.linkedin.com/in/haojie-song-213955326/) · [X](https://x.com/Song_Of_Hero) · [haojie.song@epita.fr](mailto:haojie.song@epita.fr) · [pursuer.master@gmail.com](mailto:pursuer.master@gmail.com)
 
 ### 🚀 Projects
 
@@ -17,7 +16,3 @@
 ### 🛠 Tools
 
 <img src="https://skillicons.dev/icons?i=python,ts,docker,git,githubactions" />
-
-### 📫 Contact
-
-[LinkedIn](https://www.linkedin.com/in/haojie-song-213955326/) · [haojie.song@epita.fr](mailto:haojie.song@epita.fr) · [pursuer.master@gmail.com](mailto:pursuer.master@gmail.com)
