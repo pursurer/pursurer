@@ -3,9 +3,6 @@
   <img src="https://github.com/pursurer/pursurer/raw/main/assets/song-of-hero.svg" alt="Song of Hero, Chapter I. Haojie Song, an AI explorer at the dawn of a magnificent age." width="100%">
 </picture>
 
-**I believe** we are living through the greatest transformation in human history, and that one determined builder with AI can change the world.<br>
-**So I build**, every day: agent skills and research tools that do real work.
-
 > [!IMPORTANT]
 > **Open to AI engineering internships and AI research roles (research intern or RA).** [LinkedIn](https://www.linkedin.com/in/haojie-song-213955326/) · [X](https://x.com/Song_Of_Hero) · [haojie.song@epita.fr](mailto:haojie.song@epita.fr) · [pursuer.master@gmail.com](mailto:pursuer.master@gmail.com)
 
@@ -23,5 +20,3 @@
 [All repositories →](https://github.com/pursurer?tab=repositories)
 
 **Tools:** Python · PyTorch · LLM APIs · Agent Skills · GitHub Actions · Shell
-
-<p align="center"><em>Chapter II is being written.</em></p>
