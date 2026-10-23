@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600" role="img" aria-label="Seedance Director: Brief to shot-by-shot QA, as an Agent Skill for Codex and Claude Code.">
+  <rect x="2" y="2" width="596" height="596" rx="28" fill="#0b0f17" stroke="#262c38" stroke-width="4"/>
+  <text x="44" y="96" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="34" letter-spacing="4" fill="#e3a63a">AGENT SKILL</text>
+  <text x="40" y="200" font-family="Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Times New Roman', serif" font-size="78" font-weight="700" fill="#f7f3ea">Seedance</text>
+  <text x="40" y="280" font-family="Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Times New Roman', serif" font-size="78" font-weight="700" fill="#f7f3ea">Director</text>
+  <text x="44" y="370" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="44" fill="#c9d1d9">Brief to</text>
+  <text x="44" y="428" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="44" fill="#c9d1d9">shot-by-shot QA</text>
+  
+  <rect x="44" y="480" width="480" height="62" rx="31" fill="#1a1609" stroke="#5a4416"/><text x="66" y="522" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="32" fill="#e3a63a">2.2k★ awesome-seedance</text>
+</svg>
