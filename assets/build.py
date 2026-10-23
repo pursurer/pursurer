@@ -4,9 +4,8 @@ Run from the repository root: python3 assets/build.py
 
 The banner is one pixel sunrise. The sun is drawn from contribution-graph
 cells and rises one row at a time; its light spreads outward as an ordered
-dither, ring by ring. Each climb sends a ripple outward across the sea
-below; once the sun is up the water goes still and only a few stars drift.
-Reduced-motion users get a still, finished frame.
+dither, ring by ring. Everything after that is static except a few slow
+stars. Reduced-motion users get the finished frame.
 """
 
 from math import hypot
@@ -23,14 +22,6 @@ AMBER = "#e9a23b"
 # Sun levels, edge to core: ember, orange, amber, gold, white-hot.
 SUN = ["#8f4512", "#d8711f", "#f2a23a", "#ffd27a", "#fff1c6"]
 HALO = "#d97a22"
-# Sea, crest to deep water.
-WAVE = ["#2b426b", "#1a2843", "#111a2d"]
-# Sun light on the water, edge to centre: darker and more saturated than the sun itself.
-GLINT = ["#9c4a16", "#dc7425", "#f6ad45"]
-# Every step of the sun sends a ripple outward across the sea at RIPPLE_SPEED px/s. Ripples
-# die out RIPPLE_REACH sun radii from the centre; beyond that the water never moves.
-RIPPLE_SPEED = 700
-RIPPLE_REACH = 2.6
 BAYER = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]
 
 # The sun climbs one row per step; each step waits longer than the last.
@@ -42,24 +33,20 @@ def esc(text):
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def rise_steps(rows):
-    """Keyframe percentages at which the sun climbs each row."""
-    return [round(RISE_END * (i / rows) ** 1.5) for i in range(rows + 1)]
-
-
 def rise_keyframes(rows, pitch):
     frames = []
-    for i, pct in enumerate(rise_steps(rows)):
+    for i in range(rows + 1):
+        pct = round(RISE_END * (i / rows) ** 1.5)
         frames.append(f"{pct}% {{ transform: translateY({(rows - i) * pitch}px); }}")
     frames.append("100% { transform: translateY(0); }")
     return "@keyframes rise { " + " ".join(frames) + " }"
 
 
 def banner(w, h, horizon, sun_x, radius, halo, cell, gap, title, subtitle, title_size,
-           sub_size, title_xy, sub_lines_y, stars, rows, lift, avoid):
+           sub_size, title_xy, sub_lines_y, stars, rows, reflect, avoid):
     pitch = cell + gap
     sun_y = horizon + pitch * 0.6
-    core, rings = [], [[] for _ in range(3)]
+    core, rings, mirror = [], [[] for _ in range(3)], []
     x0 = sun_x - radius - halo
     col0 = int(x0 // pitch)
     for col in range(col0, int((sun_x + radius + halo) // pitch) + 2):
@@ -80,43 +67,15 @@ def banner(w, h, horizon, sun_x, radius, halo, cell, gap, title, subtitle, title
                         f'<rect x="{x}" y="{y}" width="{cell}" height="{cell}" rx="2" '
                         f'fill="{HALO}" fill-opacity="{0.16 + 0.42 * light:.2f}"/>'
                     )
-    # Sea below the horizon: every grid column is a short stack of flat cells, a bright crest
-    # over darker water. Each time the sun climbs a row, the column under it jumps and settles
-    # in pixel steps, and the jump reaches each column later the farther it is from the sun, so
-    # ripples spread out from the core. Near columns move most; once the sun is up and the last
-    # ripple has passed, the sea is still. Under the sun the crests catch a warm glitter path.
-    bar = round(cell * 0.6)
-    crest_y = horizon + lift + 3
-    sea = []
-    for col in range(-1, int(w // pitch) + 2):
-        x = col * pitch
-        warm = max(0.0, 1 - abs(x + cell / 2 - sun_x) / (radius * 1.5))
-        cool, glint = [], []
-        k, y = 0, crest_y
-        while y < h:
-            # The crest row is solid; deeper rows thin out as an ordered dither.
-            density = (1.0, 0.5, 0.25)[min(k, 2)]
-            if density * 16 > BAYER[k % 4][col % 4]:
-                cool.append(f'<rect x="{x}" y="{y}" width="{cell}" height="{bar}" rx="2" fill="{WAVE[min(k, 2)]}"/>')
-                if warm > 0 and warm ** 1.2 * 16 > BAYER[(k + 2) % 4][col % 4] + 0.5 - 6 * (k == 0):
-                    tone = GLINT[min(2, max(0, round(warm * 3 - 0.6) - k))]
-                    glint.append(f'<rect x="{x}" y="{y}" width="{cell}" height="{bar}" rx="2" fill="{tone}"/>')
-            k, y = k + 1, y + pitch
-        d = abs(x + cell / 2 - sun_x)
-        tier = 0 if d < radius else 1 if d < radius * 1.8 else 2 if d < radius * RIPPLE_REACH else None
-        moves = "" if tier is None else f' class="rip{tier}" style="animation-delay:{0.15 + d / RIPPLE_SPEED:.2f}s"'
-        sea.append(f'<g{moves}>{"".join(cool)}<g class="glint">{"".join(glint)}</g></g>')
-    # One ripple per sun step: jump up, half way back, rest. Later steps and farther tiers are softer.
-    ripple_css = []
-    for tier, scale in enumerate((1, 0.6, 0.3)):
-        frames = ["0% { transform: translateY(0); }"]
-        for i, pct in enumerate(rise_steps(rows)[1:]):
-            a = lift * scale * (1 - 0.08 * i)
-            frames += [f"{pct}% {{ transform: translateY({-round(a)}px); }}",
-                       f"{pct + 4}% {{ transform: translateY({-round(a / 2)}px); }}",
-                       f"{pct + 8}% {{ transform: translateY(0); }}"]
-        ripple_css.append(f"@keyframes rip{tier} {{ {' '.join(frames)} }}"
-                          f" .rip{tier} {{ animation: rip{tier} 2.4s both; animation-timing-function: step-end; }}")
+    # Reflection on the ground: the sun's lower rows, mirrored, every other column dimmer.
+    first = int(horizon // pitch) + 1
+    for k in range(reflect):
+        y = first * pitch + k * pitch
+        half = radius * (0.78 - 0.2 * k)
+        for col in range(int((sun_x - half) // pitch), int((sun_x + half) // pitch) + 1):
+            x = col * pitch
+            op = (0.32 - 0.1 * k) * (1 if col % 2 else 0.6)
+            mirror.append(f'<rect x="{x}" y="{y}" width="{cell}" height="{cell - 2 * k}" rx="2" fill="{SUN[1]}" fill-opacity="{op:.2f}"/>')
     star_marks = []
     for i, (sx, sy, size, op) in enumerate(stars):
         if avoid[0] <= sx <= avoid[2] and avoid[1] <= sy <= avoid[3]:
@@ -141,14 +100,13 @@ def banner(w, h, horizon, sun_x, radius, halo, cell, gap, title, subtitle, title
     @keyframes light {{ from {{ opacity: 0; }} to {{ opacity: 1; }} }}
     {ring_css}
     .glow {{ animation: glow 2.8s 0.15s {EASE_OUT} both; }}
-    .glint {{ animation: light 1.2s {land - 0.6:.2f}s {EASE_OUT} both; }}
-    {' '.join(ripple_css)}
+    .mirror {{ animation: light 1.2s {land - 0.6:.2f}s {EASE_OUT} both; }}
     @keyframes glow {{ from {{ opacity: 0.15; }} to {{ opacity: 1; }} }}
     .tw {{ animation: twinkle 6s ease-in-out infinite; }}
     .tw1 {{ animation-duration: 7.5s; animation-delay: 1.5s; }}
     .tw2 {{ animation-duration: 9s; animation-delay: 3s; }}
     @keyframes twinkle {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.35; }} }}
-    @media (prefers-reduced-motion: reduce) {{ .sun, .ring, .glow, .glint, .rip0, .rip1, .rip2, .tw {{ animation: none; }} }}
+    @media (prefers-reduced-motion: reduce) {{ .sun, .ring, .glow, .mirror, .tw {{ animation: none; }} }}
   </style>
   <defs>
     <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
@@ -170,7 +128,7 @@ def banner(w, h, horizon, sun_x, radius, halo, cell, gap, title, subtitle, title
     {halo_groups}
     <g class="sun">{''.join(core)}</g>
     <rect x="0" y="{horizon}" width="{w}" height="{h - horizon}" fill="#05070c"/>
-    {''.join(sea)}
+    <g class="mirror">{''.join(mirror)}</g>
     <rect x="0" y="{horizon - 0.5}" width="{w}" height="{1.5 if w > 1000 else 2}" fill="url(#line)"/>
   </g>
   <text x="{title_xy[0]}" y="{title_xy[1]}" font-family="{SERIF}" font-size="{title_size}" font-weight="700" fill="{INK}">{esc(title)}</text>
@@ -239,16 +197,16 @@ def write(name, svg):
 def main():
     subtitle = ["An AI explorer at the dawn of a magnificent age."]
     write("song-of-hero.svg", banner(
-        1200, 300, horizon=226, sun_x=930, radius=124, halo=60, cell=13, gap=4,
+        1200, 290, horizon=236, sun_x=930, radius=124, halo=60, cell=13, gap=4,
         title="Song of Hero", subtitle=subtitle, title_size=80, sub_size=26,
         title_xy=(60, 146), sub_lines_y=[192], stars=scatter(1200, 10, 220, 46, 7), rows=6,
-        lift=12, avoid=(40, 70, 680, 205),
+        reflect=3, avoid=(40, 70, 680, 205),
     ))
     write("song-of-hero-mobile.svg", banner(
-        800, 520, horizon=412, sun_x=560, radius=150, halo=80, cell=15, gap=5,
+        800, 500, horizon=420, sun_x=560, radius=150, halo=80, cell=15, gap=5,
         title="Song of Hero", subtitle=["An AI explorer at the dawn", "of a magnificent age."],
         title_size=100, sub_size=40, title_xy=(48, 150), sub_lines_y=[220, 270],
-        stars=scatter(800, 12, 400, 40, 11), rows=6, lift=16, avoid=(30, 60, 780, 285),
+        stars=scatter(800, 12, 400, 40, 11), rows=6, reflect=3, avoid=(30, 60, 780, 285),
     ))
     cards = {
         "seedance": ("AGENT SKILL", ["Seedance Director"], ["Seedance", "Director"],
