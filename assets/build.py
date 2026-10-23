@@ -4,12 +4,12 @@ Run from the repository root: python3 assets/build.py
 
 The banner is one pixel sunrise. The sun is drawn from contribution-graph
 cells and rises one row at a time; its light spreads outward as an ordered
-dither, ring by ring. After that only the sea below the horizon keeps
-moving, one cell at a time, with a few slow stars. Reduced-motion users get
+dither, ring by ring. After that only the sea keeps moving: a wave travels
+across it in pixel steps, and a few stars drift. Reduced-motion users get
 a still, finished frame.
 """
 
-from math import hypot, sin
+from math import hypot
 from pathlib import Path
 
 OUT = Path(__file__).resolve().parent
@@ -23,11 +23,14 @@ AMBER = "#e9a23b"
 # Sun levels, edge to core: ember, orange, amber, gold, white-hot.
 SUN = ["#8f4512", "#d8711f", "#f2a23a", "#ffd27a", "#fff1c6"]
 HALO = "#d97a22"
-WAVE = "#22324f"
+# Sea, crest to deep water.
+WAVE = ["#2b426b", "#1a2843", "#111a2d"]
 # Sun light on the water, edge to centre: darker and more saturated than the sun itself.
 GLINT = ["#9c4a16", "#dc7425", "#f6ad45"]
-# Seconds per sway cycle for each sea row; unequal so the rows never move in lockstep.
-SWAY = [2.4, 3.2, 2.0]
+# One bob of a sea column takes WAVE_PERIOD seconds; each column starts WAVE_LAG seconds
+# after its left neighbour, which makes the wave travel to the right.
+WAVE_PERIOD = 2.4
+WAVE_LAG = 0.12
 BAYER = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]
 
 # The sun climbs one row per step; each step waits longer than the last.
@@ -49,7 +52,7 @@ def rise_keyframes(rows, pitch):
 
 
 def banner(w, h, horizon, sun_x, radius, halo, cell, gap, title, subtitle, title_size,
-           sub_size, title_xy, sub_lines_y, stars, rows, reflect, avoid):
+           sub_size, title_xy, sub_lines_y, stars, rows, lift, avoid):
     pitch = cell + gap
     sun_y = horizon + pitch * 0.6
     core, rings = [], [[] for _ in range(3)]
@@ -73,29 +76,34 @@ def banner(w, h, horizon, sun_x, radius, halo, cell, gap, title, subtitle, title
                         f'<rect x="{x}" y="{y}" width="{cell}" height="{cell}" rx="2" '
                         f'fill="{HALO}" fill-opacity="{0.16 + 0.42 * light:.2f}"/>'
                     )
-    # Sea below the horizon: wave crests drawn as flat grid cells. Under the sun the crests
-    # turn warm and dense, a glitter path. Each row sways one cell sideways in steps, out of
-    # phase with its neighbours, so the water moves on the same grid the sun rises on.
-    first = int(horizon // pitch) + 1
+    # Sea below the horizon: every grid column is a short stack of flat cells, a bright crest
+    # over darker water. Each column bobs up and down in pixel steps, and its delay grows with
+    # x, so a wave travels across the sea on the same grid the sun rises on. Under the sun the
+    # crests catch a warm glitter path that lights up as the sun lands.
     bar = round(cell * 0.6)
-    sea, sway_css = [], []
-    for k in range(reflect):
-        y = first * pitch + k * pitch + (cell - bar) // 2
-        base, glint = [], []
-        for col in range(-2, int(w // pitch) + 3):
-            x = col * pitch
-            warm = max(0.0, 1 - abs(x + cell / 2 - sun_x) / (radius * (1.0 + 0.3 * k)))
-            if warm > 0 and warm ** 1.1 * 16 > BAYER[k % 4][col % 4] + 0.5:
-                tone = GLINT[2] if warm > 0.7 else GLINT[1] if warm > 0.4 else GLINT[0]
-                glint.append(f'<rect x="{x}" y="{y}" width="{cell}" height="{bar}" rx="2" fill="{tone}" fill-opacity="{0.5 + 0.45 * warm - 0.08 * k:.2f}"/>')
-            elif sin(col * 0.62 + k * 2.1) + 0.5 * sin(col * 0.23 - k) > 0.55:
-                base.append(f'<rect x="{x}" y="{y}" width="{cell}" height="{bar}" rx="2" fill="{WAVE}" fill-opacity="{0.4 + 0.12 * k:.2f}"/>')
-        sea.append(f'<g class="w w{k}">{"".join(base)}<g class="glint">{"".join(glint)}</g></g>')
-        shift = pitch if k % 2 == 0 else -pitch
-        sway_css.append(
-            f"@keyframes sway{k} {{ 0% {{ transform: translateX(0); }} 50% {{ transform: translateX({shift}px); }} }}"
-            f" .w{k} {{ animation: sway{k} {SWAY[k % 3]}s {0.4 * k:.1f}s infinite; animation-timing-function: step-end; }}"
-        )
+    crest_y = horizon + lift + 3
+    sea = []
+    for col in range(-1, int(w // pitch) + 2):
+        x = col * pitch
+        warm = max(0.0, 1 - abs(x + cell / 2 - sun_x) / (radius * 1.5))
+        cool, glint = [], []
+        k, y = 0, crest_y
+        while y < h:
+            # The crest row is solid; deeper rows thin out as an ordered dither.
+            density = (1.0, 0.5, 0.25)[min(k, 2)]
+            if density * 16 > BAYER[k % 4][col % 4]:
+                cool.append(f'<rect x="{x}" y="{y}" width="{cell}" height="{bar}" rx="2" fill="{WAVE[min(k, 2)]}"/>')
+                if warm > 0 and warm ** 1.2 * 16 > BAYER[(k + 2) % 4][col % 4] + 0.5 - 6 * (k == 0):
+                    tone = GLINT[min(2, max(0, round(warm * 3 - 0.6) - k))]
+                    glint.append(f'<rect x="{x}" y="{y}" width="{cell}" height="{bar}" rx="2" fill="{tone}"/>')
+            k, y = k + 1, y + pitch
+        delay = -(col * WAVE_LAG) % WAVE_PERIOD
+        sea.append(f'<g class="col" style="animation-delay:-{delay:.2f}s">{"".join(cool)}<g class="glint">{"".join(glint)}</g></g>')
+    # Four levels per bob (rest, half, top, half), so the crest moves in visible pixel steps.
+    bob = " ".join(
+        f"{25 * i}% {{ transform: translateY({-round(lift * (0, 0.5, 1, 0.5)[i])}px); }}"
+        for i in range(4)
+    )
     star_marks = []
     for i, (sx, sy, size, op) in enumerate(stars):
         if avoid[0] <= sx <= avoid[2] and avoid[1] <= sy <= avoid[3]:
@@ -121,13 +129,14 @@ def banner(w, h, horizon, sun_x, radius, halo, cell, gap, title, subtitle, title
     {ring_css}
     .glow {{ animation: glow 2.8s 0.15s {EASE_OUT} both; }}
     .glint {{ animation: light 1.2s {land - 0.6:.2f}s {EASE_OUT} both; }}
-    {' '.join(sway_css)}
+    .col {{ animation: bob {WAVE_PERIOD}s infinite; animation-timing-function: step-end; }}
+    @keyframes bob {{ {bob} }}
     @keyframes glow {{ from {{ opacity: 0.15; }} to {{ opacity: 1; }} }}
     .tw {{ animation: twinkle 6s ease-in-out infinite; }}
     .tw1 {{ animation-duration: 7.5s; animation-delay: 1.5s; }}
     .tw2 {{ animation-duration: 9s; animation-delay: 3s; }}
     @keyframes twinkle {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.35; }} }}
-    @media (prefers-reduced-motion: reduce) {{ .sun, .ring, .glow, .glint, .w, .tw {{ animation: none; }} }}
+    @media (prefers-reduced-motion: reduce) {{ .sun, .ring, .glow, .glint, .col, .tw {{ animation: none; }} }}
   </style>
   <defs>
     <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
@@ -218,16 +227,16 @@ def write(name, svg):
 def main():
     subtitle = ["An AI explorer at the dawn of a magnificent age."]
     write("song-of-hero.svg", banner(
-        1200, 290, horizon=236, sun_x=930, radius=124, halo=60, cell=13, gap=4,
+        1200, 300, horizon=226, sun_x=930, radius=124, halo=60, cell=13, gap=4,
         title="Song of Hero", subtitle=subtitle, title_size=80, sub_size=26,
         title_xy=(60, 146), sub_lines_y=[192], stars=scatter(1200, 10, 220, 46, 7), rows=6,
-        reflect=3, avoid=(40, 70, 680, 205),
+        lift=12, avoid=(40, 70, 680, 205),
     ))
     write("song-of-hero-mobile.svg", banner(
-        800, 500, horizon=420, sun_x=560, radius=150, halo=80, cell=15, gap=5,
+        800, 520, horizon=412, sun_x=560, radius=150, halo=80, cell=15, gap=5,
         title="Song of Hero", subtitle=["An AI explorer at the dawn", "of a magnificent age."],
         title_size=100, sub_size=40, title_xy=(48, 150), sub_lines_y=[220, 270],
-        stars=scatter(800, 12, 400, 40, 11), rows=6, reflect=3, avoid=(30, 60, 780, 285),
+        stars=scatter(800, 12, 400, 40, 11), rows=6, lift=16, avoid=(30, 60, 780, 285),
     ))
     cards = {
         "seedance": ("AGENT SKILL", ["Seedance Director"], ["Seedance", "Director"],
