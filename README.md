@@ -17,9 +17,11 @@
   <a href="https://github.com/pursurer/Paper-Screening-Agent"><picture><source media="(max-width: 640px)" srcset="https://github.com/pursurer/pursurer/raw/main/assets/card-pipeline-mobile.svg"><img src="https://github.com/pursurer/pursurer/raw/main/assets/card-pipeline.svg" width="49%" alt="Paper Pipeline: collects papers from 10 AI conferences, scores each 1 to 10 and keeps the relevant ones."></picture></a>
 </p>
 
-- **Engineering:** [seedance-production-workflow](https://github.com/pursurer/seedance-awesome-director), an Agent Skill for Codex and Claude Code, v0.1.0 with 13 tests in CI.
+- **Engineering:** [seedance-production-workflow](https://github.com/pursurer/seedance-awesome-director): from brief to storyboard, generation handoff and shot-by-shot QA. v0.1.0, 13 tests in CI, listed on [skills.sh](https://skills.sh/learnprompt/awesome-seedance/seedance-production-workflow).
 - **Research tooling:** [paper_scraper](https://github.com/pursurer/paper_scraper) collected 23,197 papers from 10 AI conferences into [top-ai-conference-papers](https://github.com/pursurer/top-ai-conference-papers); [Paper-Screening-Agent](https://github.com/pursurer/Paper-Screening-Agent) graded 10,000+ of them and kept 5,720 in [Curated-Agent-Memory-Papers](https://github.com/pursurer/Curated-Agent-Memory-Papers).
-- **Research, discontinued:** [SNN-FewShot-Detection](https://github.com/pursurer/SNN-FewShot-Detection), few-shot detection with spiking neural networks on COCO. · [All repositories](https://github.com/pursurer?tab=repositories)
+- **Research, archived:** [SNN-FewShot-Detection](https://github.com/pursurer/SNN-FewShot-Detection), few-shot detection with spiking neural networks on COCO.
+
+[All repositories →](https://github.com/pursurer?tab=repositories)
 
 **Tools:** Python · PyTorch · LLM APIs · Agent Skills · GitHub Actions · Shell
 
