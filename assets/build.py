@@ -4,9 +4,9 @@ Run from the repository root: python3 assets/build.py
 
 The banner is one pixel sunrise. The sun is drawn from contribution-graph
 cells and rises one row at a time; its light spreads outward as an ordered
-dither, ring by ring. After that only the sea keeps moving: a wave travels
-across it in pixel steps, and a few stars drift. Reduced-motion users get
-a still, finished frame.
+dither, ring by ring. Each climb sends a ripple outward across the sea
+below; once the sun is up the water goes still and only a few stars drift.
+Reduced-motion users get a still, finished frame.
 """
 
 from math import hypot
@@ -27,10 +27,10 @@ HALO = "#d97a22"
 WAVE = ["#2b426b", "#1a2843", "#111a2d"]
 # Sun light on the water, edge to centre: darker and more saturated than the sun itself.
 GLINT = ["#9c4a16", "#dc7425", "#f6ad45"]
-# One bob of a sea column takes WAVE_PERIOD seconds; each column starts WAVE_LAG seconds
-# after its left neighbour, which makes the wave travel to the right.
-WAVE_PERIOD = 2.4
-WAVE_LAG = 0.12
+# Every step of the sun sends a ripple outward across the sea at RIPPLE_SPEED px/s. Ripples
+# die out RIPPLE_REACH sun radii from the centre; beyond that the water never moves.
+RIPPLE_SPEED = 700
+RIPPLE_REACH = 2.6
 BAYER = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]
 
 # The sun climbs one row per step; each step waits longer than the last.
@@ -42,10 +42,14 @@ def esc(text):
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def rise_steps(rows):
+    """Keyframe percentages at which the sun climbs each row."""
+    return [round(RISE_END * (i / rows) ** 1.5) for i in range(rows + 1)]
+
+
 def rise_keyframes(rows, pitch):
     frames = []
-    for i in range(rows + 1):
-        pct = round(RISE_END * (i / rows) ** 1.5)
+    for i, pct in enumerate(rise_steps(rows)):
         frames.append(f"{pct}% {{ transform: translateY({(rows - i) * pitch}px); }}")
     frames.append("100% { transform: translateY(0); }")
     return "@keyframes rise { " + " ".join(frames) + " }"
@@ -77,9 +81,10 @@ def banner(w, h, horizon, sun_x, radius, halo, cell, gap, title, subtitle, title
                         f'fill="{HALO}" fill-opacity="{0.16 + 0.42 * light:.2f}"/>'
                     )
     # Sea below the horizon: every grid column is a short stack of flat cells, a bright crest
-    # over darker water. Each column bobs up and down in pixel steps, and its delay grows with
-    # x, so a wave travels across the sea on the same grid the sun rises on. Under the sun the
-    # crests catch a warm glitter path that lights up as the sun lands.
+    # over darker water. Each time the sun climbs a row, the column under it jumps and settles
+    # in pixel steps, and the jump reaches each column later the farther it is from the sun, so
+    # ripples spread out from the core. Near columns move most; once the sun is up and the last
+    # ripple has passed, the sea is still. Under the sun the crests catch a warm glitter path.
     bar = round(cell * 0.6)
     crest_y = horizon + lift + 3
     sea = []
@@ -97,13 +102,21 @@ def banner(w, h, horizon, sun_x, radius, halo, cell, gap, title, subtitle, title
                     tone = GLINT[min(2, max(0, round(warm * 3 - 0.6) - k))]
                     glint.append(f'<rect x="{x}" y="{y}" width="{cell}" height="{bar}" rx="2" fill="{tone}"/>')
             k, y = k + 1, y + pitch
-        delay = -(col * WAVE_LAG) % WAVE_PERIOD
-        sea.append(f'<g class="col" style="animation-delay:-{delay:.2f}s">{"".join(cool)}<g class="glint">{"".join(glint)}</g></g>')
-    # Four levels per bob (rest, half, top, half), so the crest moves in visible pixel steps.
-    bob = " ".join(
-        f"{25 * i}% {{ transform: translateY({-round(lift * (0, 0.5, 1, 0.5)[i])}px); }}"
-        for i in range(4)
-    )
+        d = abs(x + cell / 2 - sun_x)
+        tier = 0 if d < radius else 1 if d < radius * 1.8 else 2 if d < radius * RIPPLE_REACH else None
+        moves = "" if tier is None else f' class="rip{tier}" style="animation-delay:{0.15 + d / RIPPLE_SPEED:.2f}s"'
+        sea.append(f'<g{moves}>{"".join(cool)}<g class="glint">{"".join(glint)}</g></g>')
+    # One ripple per sun step: jump up, half way back, rest. Later steps and farther tiers are softer.
+    ripple_css = []
+    for tier, scale in enumerate((1, 0.6, 0.3)):
+        frames = ["0% { transform: translateY(0); }"]
+        for i, pct in enumerate(rise_steps(rows)[1:]):
+            a = lift * scale * (1 - 0.08 * i)
+            frames += [f"{pct}% {{ transform: translateY({-round(a)}px); }}",
+                       f"{pct + 4}% {{ transform: translateY({-round(a / 2)}px); }}",
+                       f"{pct + 8}% {{ transform: translateY(0); }}"]
+        ripple_css.append(f"@keyframes rip{tier} {{ {' '.join(frames)} }}"
+                          f" .rip{tier} {{ animation: rip{tier} 2.4s both; animation-timing-function: step-end; }}")
     star_marks = []
     for i, (sx, sy, size, op) in enumerate(stars):
         if avoid[0] <= sx <= avoid[2] and avoid[1] <= sy <= avoid[3]:
@@ -129,14 +142,13 @@ def banner(w, h, horizon, sun_x, radius, halo, cell, gap, title, subtitle, title
     {ring_css}
     .glow {{ animation: glow 2.8s 0.15s {EASE_OUT} both; }}
     .glint {{ animation: light 1.2s {land - 0.6:.2f}s {EASE_OUT} both; }}
-    .col {{ animation: bob {WAVE_PERIOD}s infinite; animation-timing-function: step-end; }}
-    @keyframes bob {{ {bob} }}
+    {' '.join(ripple_css)}
     @keyframes glow {{ from {{ opacity: 0.15; }} to {{ opacity: 1; }} }}
     .tw {{ animation: twinkle 6s ease-in-out infinite; }}
     .tw1 {{ animation-duration: 7.5s; animation-delay: 1.5s; }}
     .tw2 {{ animation-duration: 9s; animation-delay: 3s; }}
     @keyframes twinkle {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.35; }} }}
-    @media (prefers-reduced-motion: reduce) {{ .sun, .ring, .glow, .glint, .col, .tw {{ animation: none; }} }}
+    @media (prefers-reduced-motion: reduce) {{ .sun, .ring, .glow, .glint, .rip0, .rip1, .rip2, .tw {{ animation: none; }} }}
   </style>
   <defs>
     <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
