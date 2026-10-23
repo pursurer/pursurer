@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Paris-EPITA-4f46e5?style=flat-square" />
   <img src="https://img.shields.io/badge/Focus-AI%20agents-06b6d4?style=flat-square" />
-  <img src="https://img.shields.io/badge/Open%20to-2027%20internships-22c55e?style=flat-square" />
+  <img src="https://img.shields.io/badge/Looking%20for-AI%20engineering%20internship-22c55e?style=flat-square" />
 </p>
 
 ### 🚀 Projects
@@ -17,3 +17,7 @@
 ### 🛠 Tools
 
 <img src="https://skillicons.dev/icons?i=python,ts,docker,git,githubactions" />
+
+### 📫 Contact
+
+[LinkedIn](https://www.linkedin.com/in/haojie-song-213955326/) · [haojie.song@epita.fr](mailto:haojie.song@epita.fr) · [pursuer.master@gmail.com](mailto:pursuer.master@gmail.com)
