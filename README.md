@@ -10,7 +10,7 @@
 > [!IMPORTANT]
 > **Looking for an AI engineering internship.** [LinkedIn](https://www.linkedin.com/in/haojie-song-213955326/) · [X](https://x.com/Song_Of_Hero) · [haojie.song@epita.fr](mailto:haojie.song@epita.fr) · [pursuer.master@gmail.com](mailto:pursuer.master@gmail.com)
 
-### Featured work
+### What I've built so far
 
 <p>
   <a href="https://github.com/pursurer/seedance-awesome-director"><picture><source media="(max-width: 640px)" srcset="https://github.com/pursurer/pursurer/raw/main/assets/card-seedance-mobile.svg"><img src="https://github.com/pursurer/pursurer/raw/main/assets/card-seedance.svg" width="49%" alt="Seedance Director: brief to shot-by-shot QA, as an Agent Skill for Codex and Claude Code."></picture></a>
@@ -19,6 +19,8 @@
   <a href="https://github.com/pursurer/Curated-Agent-Memory-Papers"><picture><source media="(max-width: 640px)" srcset="https://github.com/pursurer/pursurer/raw/main/assets/card-memory-mobile.svg"><img src="https://github.com/pursurer/pursurer/raw/main/assets/card-memory.svg" width="49%" alt="Agent Memory Papers: agent-memory papers graded 1 to 10 with a reason."></picture></a>
 </p>
 
-Also: [top-ai-conference-papers](https://github.com/pursurer/top-ai-conference-papers) (dataset for 10 AI conferences) · [SNN-FewShot-Detection](https://github.com/pursurer/SNN-FewShot-Detection) (research, paused)
+Also: [top-ai-conference-papers](https://github.com/pursurer/top-ai-conference-papers) (dataset for 10 AI conferences) · [SNN-FewShot-Detection](https://github.com/pursurer/SNN-FewShot-Detection) (research, paused) · [all repositories](https://github.com/pursurer?tab=repositories)
 
 **Tools:** Python · TypeScript · Docker · GitHub Actions · LLM APIs
+
+<p align="center"><em>Chapter II is being written.</em></p>
