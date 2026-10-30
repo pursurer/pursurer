@@ -9,16 +9,26 @@ ridge or barbel, coloured by the fish's markings and shaded by a light from
 the upper left. An SVG image cannot run scripts, so each koi is drawn as a
 loop of tail-beat poses that flip in place while the whole fish glides
 across; the wake and the specks in the water are timed to match. Koi fade
-under the title. Reduced-motion users get a still pond.
+under the title, a character-cell wordmark like "One Page" on the course
+page (its font is rasterised with Pillow).
+Once a loop a handful of pellets is thrown in ahead of the front koi: it
+hurries over, slows down and eats them one by one. Reduced-motion users get
+a still pond.
 """
 
-from math import cos, floor, hypot, inf, pi, sin, sqrt, tan
+from math import cos, floor, hypot, inf, pi, sin, sqrt
 from pathlib import Path
 
 OUT = Path(__file__).resolve().parent
 
 SERIF = "Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Times New Roman', serif"
 MONO = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace"
+# The title's font is rasterised at build time; the course page used Noto Serif Display, then Didot.
+TITLE_FONTS = {"georgia": ("/System/Library/Fonts/Supplemental/Georgia Bold.ttf", 0),
+               "didot": ("/System/Library/Fonts/Supplemental/Didot.ttc", 2)}
+NOISE = "/\\|=+*%#@"
+GLINT_SPEED, GLINT_HALF = 0.16, 0.022       # share of the word the glint crosses per second; half its width
+GLINT_PERIOD = 1.9 / GLINT_SPEED
 SANS = "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif"
 
 INK = "#f7f1e3"
@@ -30,10 +40,13 @@ PONDS = {
                "ink": "#1c1a17", "dark": False},
     "lake": {"water": "#2d6a68", "accent": "#e8784f", "light": "#ece6da", "black": "#3a3632",
              "ink": "#f3efe4", "dark": True},
+    # the course page's own lake-blue trial, dark scheme
+    "deep": {"water": "#0d2a32", "accent": "#e8784f", "light": "#ece6da", "black": "#3a3632",
+             "ink": "#f3efe4", "dark": True},
 }
 # Shadow on the pond floor: colour as a share of the water, and its strength.
-SHADOW = {"normal": (0.55, 0.22), "lake": (0.35, 0.36)}
-POND = "lake"
+SHADOW = {"normal": (0.55, 0.22), "lake": (0.35, 0.36), "deep": (0.3, 0.55)}
+POND = "deep"
 
 N = 10                      # spine nodes per koi
 RAMP = " .:-=+*#%@"         # sparse glyphs on lit skin, dense ones in shadow
@@ -118,6 +131,10 @@ def palette(name):
         "fin": mix(light, water, 0.25) if dark else mix(light, water, 0.15),
         "dot": light if dark else rgb(p["ink"]),
         "shadow": mul(water, SHADOW[name][0]), "shade": SHADOW[name][1],
+        "food": (212, 160, 92) if dark else (150, 98, 46),
+        # the course page's title runs white to grey; grey is mixed with the water here so it stays readable
+        "title": ((255, 255, 255), mix((255, 255, 255), water, 0.42)) if dark else ((0, 0, 0), (102, 102, 102)),
+        "glint": accent,
     }
 
 
@@ -347,26 +364,242 @@ def pose_svg(cells, cw, ch, fs):
     return "".join(out)
 
 
-def banner(w, h, pond, cell, fish, title, subtitle, title_size, sub_size, title_xy, sub_lines_y, avoid):
+def wordmark(title, w, P):
+    """The title drawn like "One Page" on the course page: the letters are
+    sampled from the font outline into character cells, and each cell gets a
+    glyph by how much of it the letter covers, white fading to grey across the
+    word. On load the cells flicker through random glyphs and settle into the
+    word; afterwards a thin accent glint crosses it now and then."""
+    from PIL import Image, ImageDraw, ImageFont
+    cw, ch = title["cell"]
+    ss = 4
+    path, index = TITLE_FONTS[title["font"]]
+    font = ImageFont.truetype(path, round(title["size"] * ss), index=index)
+    cells = []
+    for line, (text, top) in enumerate(title["lines"]):
+        left, upper, right, lower = font.getbbox(text)
+        img = Image.new("L", (right - left, lower - upper), 0)
+        ImageDraw.Draw(img).text((-left, -upper), text, font=font, fill=255)
+        img = img.resize((round(img.width * title["squeeze"]), img.height), Image.LANCZOS)
+        cols, rows = -(-img.width // (cw * ss)), -(-img.height // (ch * ss))
+        pad = Image.new("L", (cols * cw * ss, rows * ch * ss), 0)
+        pad.paste(img, (0, 0))
+        cover = pad.resize((cols, rows), Image.BOX).load()
+        x0 = round((w - cols * cw) / 2) if title["align"] == "center" else title["x"]
+        for r in range(rows):
+            for c in range(cols):
+                v = cover[c, r] / 255
+                if v >= 0.12:
+                    cells.append((x0 + c * cw + cw / 2, top + r * ch + ch / 2, v, h2(c + 1000 * line, r)))
+    fs = round(ch * 0.8)
+    x_lo, x_hi = min(x for x, *_ in cells), max(x for x, *_ in cells)
+
+    def text(cls, style, group):
+        xs = " ".join(num(x) for x, _, _ in group)
+        ys = " ".join(num(y + fs * 0.36) for _, y, _ in group)
+        return f'<text class="{cls}" style="{style}" x="{xs}" y="{ys}">{esc("".join(g for _, _, g in group))}</text>'
+
+    final, settle, glint = {}, {}, {}
+    for x, y, v, k in cells:
+        g = ("#" if k < 0.5 else "@") if v > 0.82 else "%" if v > 0.55 else "+" if v > 0.32 else ":"
+        at = round(0.15 + k * 0.95, 1)
+        final.setdefault(at, []).append((x, y, g))
+        settle.setdefault(at, []).append((x, y))
+        glint.setdefault(x, []).append((x, y, g))
+    out = [text("tf", f"animation-delay:{num(at)}s", group) for at, group in sorted(final.items())]
+    # Before it settles each cell flips between two random glyphs, brightening as it goes.
+    for at, group in sorted(settle.items()):
+        flips = "".join(
+            text("nf", f"animation-delay:{num(m * FRAME)}s",
+                 [(x, y, NOISE[int(h2(round(x) * 7 + m, round(y) * 13) * len(NOISE))]) for x, y in group])
+            for m in range(2))
+        out.append(f'<g class="tn" style="animation: rise {num(at)}s linear both, gone 0.01s {num(at)}s forwards">{flips}</g>')
+    # The glint: a band about a twentieth of the word wide, crossing it every GLINT_PERIOD seconds.
+    gl = []
+    for x, group in sorted(glint.items()):
+        u = (x - x_lo) / ((x_hi - x_lo) or 1)
+        gl.append(text("gl", f"animation-delay:{num((u - GLINT_HALF + 0.45) / GLINT_SPEED)}s", group))
+    css = (f".tf {{ animation: settle 0.12s ease-out both; }} "
+           f"@keyframes settle {{ from {{ opacity: 0; }} to {{ opacity: 1; }} }} "
+           f".nf {{ opacity: 0; animation: flick {num(2 * FRAME)}s step-end infinite; }} "
+           f"@keyframes flick {{ 0% {{ opacity: 1; }} 50% {{ opacity: 0; }} 100% {{ opacity: 0; }} }} "
+           f"@keyframes rise {{ from {{ opacity: 0.25; }} to {{ opacity: 0.75; }} }} "
+           f"@keyframes gone {{ to {{ opacity: 0; }} }} "
+           f".gl {{ opacity: 0; animation: glint {num(GLINT_PERIOD)}s step-end infinite; }} "
+           f"@keyframes glint {{ 0% {{ opacity: 1; }} {2 * GLINT_HALF / GLINT_SPEED / GLINT_PERIOD * 100:.3f}% {{ opacity: 0; }} 100% {{ opacity: 0; }} }}")
+    svg = (f'<defs><linearGradient id="tg" gradientUnits="userSpaceOnUse" x1="{num(x_lo)}" y1="0" x2="{num(x_hi)}" y2="0">'
+           f'<stop stop-color="{hexc(P["title"][0])}"/><stop offset="1" stop-color="{hexc(P["title"][1])}"/></linearGradient></defs>'
+           f'<g font-family="{MONO}" font-weight="600" font-size="{fs}" text-anchor="middle">'
+           f'<g fill="url(#tg)">{"".join(out)}</g><g fill="{hexc(P["glint"])}">{"".join(gl)}</g></g>')
+    box = (min(x for x, *_ in cells) - cw, min(y for _, y, *_ in cells) - ch, x_hi + cw, max(y for _, y, *_ in cells) + ch)
+    return svg, css, box
+
+
+# ── how a koi crosses the banner, and the pellets thrown in ahead of one ──
+
+FLIGHT = 6 * FRAME          # seconds a pellet is in the air
+RING_LIFE = 12 * FRAME      # a landing or a gulp leaves a small ring for this long
+THROW = 185                 # how far the koi's snout is from the food when the pellets are thrown
+
+
+def ray_out(x, y, dx, dy, m, w, h):
+    """How far from (x, y) along (dx, dy) the ray leaves the banner grown by m on every side."""
+    t = inf
+    if dx:
+        t = min(t, ((w + m if dx > 0 else -m) - x) / dx)
+    if dy:
+        t = min(t, ((h + m if dy > 0 else -m) - y) / dy)
+    return t
+
+
+def glide(f, w, h):
+    """The straight line a koi swims along, and when its snout is where.
+
+    The line runs through (w / 2, y) at heading a, from where the whole koi is
+    still out of sight to where its tail has left. A koi with a feed hurries
+    once the pellets land, brakes as it reaches them and picks them off at
+    under half speed."""
+    L, a = f["L"], f["a"]
+    back = ray_out(w / 2, f["y"], -cos(a), -sin(a), 0.12 * L, w, h)
+    x0, y0 = w / 2 - cos(a) * back, f["y"] - sin(a) * back
+    length = back + ray_out(w / 2, f["y"], cos(a), sin(a), 1.12 * L, w, h)
+    feed = f.get("feed")
+    s_food = (feed["x"] - x0) / cos(a) if feed else 0
+
+    def pace(s):
+        if not feed:
+            return 1
+        d = s - s_food
+        return 1 + 0.6 * sstep(-175, -120, d) - 1.1 * sstep(-100, -25, d) + 0.5 * sstep(40, 140, d)
+
+    ss, ts = [0.0], [0.0]
+    while ss[-1] < length:
+        s = min(length, ss[-1] + 2)
+        ts.append(ts[-1] + (s - ss[-1]) / (f["speed"] * pace((s + ss[-1]) / 2)))
+        ss.append(s)
+
+    def t_at(s):
+        k = clamp(int(s // 2), 0, len(ss) - 2)
+        return lerp(ts[k], ts[k + 1], clamp((s - ss[k]) / ((ss[k + 1] - ss[k]) or 1), 0, 1))
+
+    def s_at(t):
+        lo, hi = 0, len(ts) - 1
+        while hi - lo > 1:
+            mid = (lo + hi) // 2
+            lo, hi = (mid, hi) if ts[mid] <= t else (lo, mid)
+        return lerp(ss[lo], ss[hi], clamp((t - ts[lo]) / ((ts[hi] - ts[lo]) or 1), 0, 1))
+
+    marks = [0.0, length]
+    if feed:
+        marks[1:1] = [s_food + d for d in range(-200, 160, 10)]
+    keys = [(t_at(s) / ts[-1] * 100, x0 + cos(a) * s, y0 + sin(a) * s) for s in marks]
+    return {"x0": x0, "y0": y0, "length": length, "dur": ts[-1], "t_at": t_at, "s_at": s_at,
+            "keys": keys, "food": (x0 + cos(a) * s_food, y0 + sin(a) * s_food), "s_food": s_food}
+
+
+def ring(cx, cy, age, k, cw, ch):
+    """A small ring spreading from (cx, cy), as in the course page: glyphs along it, fading as it grows."""
+    R = (age * 34 + 4) * k
+    out = []
+    for r in range(floor((cy - R - ch) / ch), floor((cy + R + ch) / ch) + 1):
+        for c in range(floor((cx - R - cw) / cw), floor((cx + R + cw) / cw) + 1):
+            dx, dy = c * cw + cw / 2 - cx, r * ch + ch / 2 - cy
+            if abs(hypot(dx, dy) - R) <= cw * 0.62:
+                out.append((c, r, line_glyph(-dy, dx)))
+    return out
+
+
+def feeding(i, f, g, T0, w, h, cw, ch, fs, P):
+    """Pellets thrown in from the near bank ahead of koi i; each one it reaches is gone with a gulp."""
+    dur, a, feed = g["dur"], f["a"], f["feed"]
+    fx, fy = g["food"]
+    nx, ny = -sin(a), cos(a)
+    k_ring = cw / 8
+    food, food_g, shadow = hexc(P["food"]), hexc(mul(P["food"], 0.55)), hexc(P["shadow"])
+    t_throw = g["t_at"](g["s_food"] - THROW) - FLIGHT
+    hand = (fx + feed["hand"], h + 3 * ch)
+
+    def delay(t):
+        return num(-((T0 - t) % dur))
+
+    def cxy(c, r):
+        return f'x="{num(c * cw + cw / 2)}" y="{num(r * ch + ch / 2 + fs * 0.36)}"'
+
+    css = [f"@keyframes e{i} {{ 0% {{ opacity: 1; }} {FRAME / dur * 100 + 0.001:.4f}% {{ opacity: 0; }} 100% {{ opacity: 0; }} }} "
+           f".e{i} {{ animation: e{i} {num(dur)}s step-end infinite; }}"]
+    out, taken = [], set()
+    n = feed["pellets"]
+    pellets, tries = [], 0
+    while len(pellets) < n:
+        # Scattered over the koi's path and to either side of its snout, never two in touching cells.
+        tries += 1
+        d = lerp(-26, 40, h2(tries, 7))
+        e = (h2(tries, 11) - 0.5) * 2 * feed["spread"]
+        cell = (floor((fx + cos(a) * d + nx * e) / cw), floor((fy + sin(a) * d + ny * e) / ch))
+        gap = 1 if tries < 400 else 0       # a crowded patch may put pellets side by side
+        if all(max(abs(cell[0] - c), abs(cell[1] - r)) > gap for c, r in taken):
+            taken.add(cell)
+            pellets.append((d, cell))
+    for j, (d, cell) in enumerate(pellets):
+        px, py = cell[0] * cw + cw / 2, cell[1] * ch + ch / 2
+        t_land = t_throw + 0.1 * round(h2(j, 3) * (n - 1)) + FLIGHT
+        t_eat = g["t_at"](g["s_food"] + d)
+        # In the air: high up it shows as "o", low as ".", with its shadow parting from it and closing in.
+        for m in range(round(FLIGHT / FRAME)):
+            u = (m + 0.5) / round(FLIGHT / FRAME)
+            x, y, hh = lerp(hand[0], px, u), lerp(hand[1], py, u), 4 * u * (1 - u)
+            c, r = floor(x / cw), floor(y / ch)
+            if not 0 <= r * ch < h:
+                continue
+            sc, sr = round(hh * 3), round(hh * 2)
+            out.append(f'<g class="e e{i}" style="animation-delay:{delay(t_land - FLIGHT + m * FRAME)}s">'
+                       f'<rect x="{(c + sc) * cw}" y="{(r + sr) * ch}" width="{cw - 1}" height="{ch - 1}" fill="{shadow}" fill-opacity="0.25"/>'
+                       f'<text fill="{food}" {cxy(c, r)}>{"o" if hh > 0.4 else "."}</text></g>')
+        # Afloat until the koi gets there.
+        css.append(f"@keyframes q{i}_{j} {{ 0% {{ opacity: 1; }} {(t_eat - t_land) / dur * 100:.4f}% {{ opacity: 0; }} 100% {{ opacity: 0; }} }} "
+                   f".q{i}_{j} {{ animation: q{i}_{j} {num(dur)}s step-end infinite; }}")
+        out.append(f'<g class="e q{i}_{j}" style="animation-delay:{delay(t_land)}s">'
+                   f'<rect x="{cell[0] * cw}" y="{cell[1] * ch}" width="{cw - 1}" height="{ch - 1}" fill="{food}"/>'
+                   f'<text fill="{food_g}" {cxy(*cell)}>o</text></g>')
+        # A faint ring where it lands, a clearer one where it is eaten. Rings pass under the pellets afloat.
+        for t0, strength in ((t_land, 0.32), (t_eat, 0.6)):
+            for m in range(round(RING_LIFE / FRAME)):
+                age = (m + 0.5) * FRAME
+                cells = [rc for rc in ring(px, py, age, k_ring, cw, ch) if rc[:2] not in taken]
+                if not cells:
+                    continue
+                alpha = (1 - age / RING_LIFE) ** 1.5 * strength
+                xs = " ".join(num(c * cw + cw / 2) for c, _, _ in cells)
+                ys = " ".join(num(r * ch + ch / 2 + fs * 0.36) for _, r, _ in cells)
+                out.append(f'<text class="e e{i}" style="animation-delay:{delay(t0 + m * FRAME)}s" fill-opacity="{num(alpha)}" '
+                           f'x="{xs}" y="{ys}">{esc("".join(gl for _, _, gl in cells))}</text>')
+    return css, out
+
+
+def banner(w, h, pond, cell, fish, title, subtitle, avoid):
     P = palette(pond)
     cw, ch = cell
     fs = round(ch * 0.74)
     dot = hexc(P["dot"])
-    css, shadows, bodies, wakes = [], [], [], []
+    css, shadows, bodies, wakes, feeds = [], [], [], [], []
     for i, f in enumerate(sorted(fish, key=lambda f: f["depth"])):
         f = dict(f, marks=markings(f["variety"], f["seed"]))
         L, a = f["L"], f["a"]
-        right = cos(a) > 0
-        x0 = -0.12 * L if right else w + 0.12 * L
-        x1 = w + 1.12 * L if right else -1.12 * L
-        y0 = f["y"]
-        y1 = y0 + (x1 - x0) * tan(a)
-        dur = hypot(x1 - x0, y1 - y0) / f["speed"]
-        at = f["at"]
-        hx, hy = lerp(x0, x1, at), lerp(y0, y1, at)
-        css.append(f"@keyframes m{i} {{ from {{ transform: translate({num(x0)}px, {num(y0)}px); }} "
-                   f"to {{ transform: translate({num(x1)}px, {num(y1)}px); }} }} "
-                   f".m{i} {{ animation: m{i} {num(dur)}s {num(-at * dur)}s linear infinite; }}")
+        g = glide(f, w, h)
+        x0, y0, dur = g["x0"], g["y0"], g["dur"]
+        # T0: where the koi is in its loop when the banner loads. A feeding koi starts a little before the throw.
+        if "feed" in f:
+            T0 = (g["t_at"](g["s_food"] - THROW) - FLIGHT - f["feed"]["after"]) % dur
+            f_css, f_out = feeding(i, f, g, T0, w, h, cw, ch, fs, P)
+            css += f_css
+            feeds += f_out
+        else:
+            T0 = f["at"] * dur
+        s0 = g["s_at"](T0)
+        hx, hy = x0 + cos(a) * s0, y0 + sin(a) * s0
+        keys = " ".join(f"{pct:.3f}% {{ transform: translate({num(x)}px, {num(y)}px); }}" for pct, x, y in g["keys"])
+        css.append(f"@keyframes m{i} {{ {keys} }} "
+                   f".m{i} {{ animation: m{i} {num(dur)}s {num(-T0)}s linear infinite; }}")
         move = f'<g class="m m{i}" transform="translate({num(hx)} {num(hy)})">'
         lag = round(f["beat_at"] * POSES)
         body_frames = []
@@ -384,11 +617,11 @@ def banner(w, h, pond, cell, fish, title, subtitle, title_size, sub_size, title_
         css.append(f"@keyframes w{i} {{ 0% {{ opacity: 0.42; }} {num(hold)}% {{ opacity: 0.42; }} {num(gone)}% {{ opacity: 0; }} 100% {{ opacity: 0; }} }} "
                    f".w{i} {{ animation: w{i} {num(dur)}s linear infinite; }}")
         for c in range(i % 2, w // cw + 1, 2):
-            u = (c * cw + cw / 2 + L * cos(a) - x0) / (x1 - x0)
-            ty = lerp(y0, y1, u) - L * sin(a)
-            if not 0 <= u <= 1 or not 0 <= ty < h:
+            s = (c * cw + cw / 2 + L * cos(a) - x0) / cos(a)
+            ty = y0 + sin(a) * s - L * sin(a)
+            if not 0 <= s <= g["length"] or not 0 <= ty < h:
                 continue
-            delay = num(((u - at) * dur) % dur - dur)
+            delay = num(-((T0 - g["t_at"](s)) % dur))
             wakes.append(f'<text class="w w{i}" style="animation-delay:{delay}s" x="{num(c * cw + cw / 2)}" '
                          f'y="{num(floor(ty / ch) * ch + ch / 2 + fs * 0.36)}">:</text>')
     specks = []
@@ -398,12 +631,11 @@ def banner(w, h, pond, cell, fish, title, subtitle, title_size, sub_size, title_
             if k < 0.022:
                 specks.append(f'<text class="tw" style="animation-delay:{num(-((k * 900) % (2 * pi)) / 0.9)}s" '
                               f'x="{num(c * cw + cw / 2)}" y="{num(r * ch + ch / 2 + fs * 0.36)}">·</text>')
-    sub = "".join(
-        f'<text x="{title_xy[0] + 4}" y="{y}" font-family="{SERIF}" font-size="{sub_size}" '
-        f'font-style="italic" fill="{P["ink"]}" fill-opacity="0.8">{esc(line)}</text>'
-        for line, y in zip(subtitle, sub_lines_y)
-    )
-    ax0, ay0, ax1, ay1 = avoid
+    mark, mark_css, mark_box = wordmark(title, w, P)
+    sub_x = w / 2 if title["align"] == "center" else title["x"]
+    sub = "".join(f'<text x="{num(sub_x)}" y="{y}">{esc(line)}</text>' for line, y in zip(subtitle["lines"], subtitle["ys"]))
+    avoid = avoid or [mark_box[:3] + (subtitle["ys"][-1] + subtitle["size"] // 2,)]
+    veils = "".join(f'<rect x="{x0}" y="{y0}" width="{x1 - x0}" height="{y1 - y0}" rx="{cw * 3}"/>' for x0, y0, x1, y1 in avoid)
     glyph_font = f'font-family="{MONO}" font-weight="600" font-size="{fs}" text-anchor="middle"'
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}" role="img" aria-label="Song of Hero. Haojie Song, an AI explorer at the dawn of a magnificent age.">
   <style>
@@ -411,14 +643,15 @@ def banner(w, h, pond, cell, fish, title, subtitle, title_size, sub_size, title_
     .p0 {{ opacity: 1; }}
     @keyframes pose {{ 0% {{ opacity: 1; }} {100 / POSES + 0.01:.2f}% {{ opacity: 0; }} 100% {{ opacity: 0; }} }}
     {" ".join(css)}
-    .w {{ opacity: 0; }}
+    .w, .e {{ opacity: 0; }}
     .tw {{ opacity: 0.7; animation: twinkle 7s ease-in-out infinite; }}
     @keyframes twinkle {{ 0%, 100% {{ opacity: 0.45; }} 50% {{ opacity: 1; }} }}
-    @media (prefers-reduced-motion: reduce) {{ .p, .m, .w, .tw {{ animation: none; }} }}
+    {mark_css}
+    @media (prefers-reduced-motion: reduce) {{ .p, .m, .w, .tw, .e, .tf {{ animation: none; }} .tn, .gl {{ display: none; }} }}
   </style>
   <defs>
     <clipPath id="c"><rect width="{w}" height="{h}" rx="{14 if w > 1000 else 18}"/></clipPath>
-    <filter id="soft" x="-20%" y="-60%" width="140%" height="220%"><feGaussianBlur stdDeviation="{round(cw * 2.2)}"/></filter>
+    <filter id="soft" x="-20%" y="-60%" width="140%" height="220%" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="{round(cw * 2.2)}"/></filter>
   </defs>
   <g clip-path="url(#c)">
     <rect width="{w}" height="{h}" fill="{hexc(P["water"])}"/>
@@ -426,10 +659,11 @@ def banner(w, h, pond, cell, fish, title, subtitle, title_size, sub_size, title_
     {"".join(shadows)}
     <g {glyph_font} fill="{dot}">{"".join(wakes)}</g>
     <g {glyph_font} fill="none" stroke-width="{ch - 1}" stroke-dasharray="{cw - 1} 1">{"".join(bodies)}</g>
-    <rect x="{ax0}" y="{ay0}" width="{ax1 - ax0}" height="{ay1 - ay0}" rx="{cw * 3}" fill="{hexc(P["water"])}" fill-opacity="0.88" filter="url(#soft)"/>
+    <g {glyph_font} fill="{dot}">{"".join(feeds)}</g>
+    <g fill="{hexc(P["water"])}" fill-opacity="0.88" filter="url(#soft)">{veils}</g>
   </g>
-  <text x="{title_xy[0]}" y="{title_xy[1]}" font-family="{SERIF}" font-size="{title_size}" font-weight="700" fill="{P["ink"]}">{esc(title)}</text>
-  {sub}
+  {mark}
+  <g font-family="{MONO}" font-size="{subtitle["size"]}" font-weight="500" letter-spacing="0.02em" fill="{P["ink"]}"{' text-anchor="middle"' if title["align"] == "center" else ""}>{sub}</g>
 </svg>
 """
 
@@ -478,31 +712,49 @@ def write(name, svg, out=OUT):
     (out / name).write_text("\n".join(line for line in lines if line) + "\n")
 
 
-# Varieties and seeds are the first four koi of the course page, so their markings match.
-# a: heading in radians; at: where along its crossing the koi is when the banner loads.
+# The shoal of the course page's pond band: six koi 128-180 long cruising at 24-36 px/s, varieties
+# and seeds in its order so their markings match, tilted a little up or down as they wander.
+# y: where the koi's line crosses the middle of the banner; a: heading in radians;
+# at: where along its crossing the koi is when the banner loads.
+# feed: pellets land around x on this koi's path, thrown from the bank below, `after` seconds after load.
 DESKTOP_KOI = [
-    {"variety": "kohaku", "seed": 13, "L": 270, "a": -0.03, "y": 205, "speed": 46, "depth": 0.95, "at": 0.68, "beat_at": 0.0},
-    {"variety": "sanke", "seed": 110, "L": 240, "a": pi + 0.03, "y": 100, "speed": 38, "depth": 0.6, "at": 0.3, "beat_at": 0.4},
-    {"variety": "tancho", "seed": 207, "L": 215, "a": 0.035, "y": 60, "speed": 33, "depth": 0.4, "at": 0.3, "beat_at": 0.7},
-    {"variety": "kohaku", "seed": 304, "L": 245, "a": pi - 0.02, "y": 240, "speed": 41, "depth": 0.8, "at": 0.62, "beat_at": 0.2},
+    {"variety": "kohaku", "seed": 13, "L": 170, "a": -0.02, "y": 264, "speed": 30, "depth": 0.95, "beat_at": 0.0,
+     "feed": {"x": 930, "pellets": 7, "spread": 24, "hand": 40, "after": 1.5}},
+    {"variety": "sanke", "seed": 110, "L": 150, "a": pi + 0.2, "y": 150, "speed": 27, "depth": 0.6, "at": 0.1, "beat_at": 0.4},
+    {"variety": "tancho", "seed": 207, "L": 140, "a": 0.24, "y": 120, "speed": 25, "depth": 0.45, "at": 0.8, "beat_at": 0.7},
+    {"variety": "kohaku", "seed": 304, "L": 165, "a": pi - 0.1, "y": 70, "speed": 32, "depth": 0.8, "at": 0.15, "beat_at": 0.2},
+    {"variety": "sanke", "seed": 401, "L": 135, "a": -0.28, "y": 190, "speed": 28, "depth": 0.5, "at": 0.85, "beat_at": 0.55},
+    {"variety": "kohaku", "seed": 498, "L": 155, "a": pi + 0.06, "y": 40, "speed": 34, "depth": 0.7, "at": 0.35, "beat_at": 0.85},
 ]
 MOBILE_KOI = [
-    {"variety": "kohaku", "seed": 13, "L": 380, "a": -0.03, "y": 432, "speed": 46, "depth": 0.95, "at": 0.52, "beat_at": 0.0},
-    {"variety": "sanke", "seed": 110, "L": 330, "a": pi + 0.03, "y": 330, "speed": 38, "depth": 0.6, "at": 0.2, "beat_at": 0.4},
-    {"variety": "tancho", "seed": 207, "L": 300, "a": 0.03, "y": 175, "speed": 33, "depth": 0.4, "at": 0.35, "beat_at": 0.7},
+    {"variety": "kohaku", "seed": 13, "L": 225, "a": -0.03, "y": 540, "speed": 40, "depth": 0.95, "beat_at": 0.0,
+     "feed": {"x": 560, "pellets": 7, "spread": 24, "hand": 50, "after": 1.5}},
+    {"variety": "sanke", "seed": 110, "L": 200, "a": pi + 0.25, "y": 330, "speed": 36, "depth": 0.6, "at": 0.15, "beat_at": 0.4},
+    {"variety": "tancho", "seed": 207, "L": 190, "a": 0.3, "y": 200, "speed": 34, "depth": 0.45, "at": 0.8, "beat_at": 0.7},
+    {"variety": "kohaku", "seed": 304, "L": 210, "a": pi - 0.12, "y": 90, "speed": 38, "depth": 0.8, "at": 0.3, "beat_at": 0.2},
 ]
 
 
-def banners(pond, out=OUT):
+LAYOUT = "center"
+FONT = "georgia"
+
+
+def banners(pond, out=OUT, layout=LAYOUT, font=FONT):
+    center = layout == "center"
+    size = {"georgia": 160, "didot": 172}[font]
     write("song-of-hero.svg", banner(
         1200, 290, pond, cell=(8, 10), fish=DESKTOP_KOI,
-        title="Song of Hero", subtitle=["An AI explorer at the dawn of a magnificent age."], title_size=80, sub_size=26,
-        title_xy=(60, 146), sub_lines_y=[192], avoid=(40, 70, 680, 205),
+        title={"lines": [("Song of Hero", 26)], "font": font, "size": size, "squeeze": 0.8, "cell": (8, 10),
+               "align": layout, "x": 52},
+        subtitle={"lines": ["An AI explorer at the dawn of a magnificent age."], "size": 22, "ys": [218]},
+        avoid=None,
     ), out)
     write("song-of-hero-mobile.svg", banner(
-        800, 500, pond, cell=(11, 14), fish=MOBILE_KOI,
-        title="Song of Hero", subtitle=["An AI explorer at the dawn", "of a magnificent age."],
-        title_size=100, sub_size=40, title_xy=(48, 150), sub_lines_y=[220, 270], avoid=(30, 60, 780, 285),
+        800, 600, pond, cell=(11, 14), fish=MOBILE_KOI,
+        title={"lines": [("Song of", 18), ("Hero", 214)], "font": font, "size": size * 1.25, "squeeze": 0.85, "cell": (11, 14),
+               "align": layout, "x": 40},
+        subtitle={"lines": ["An AI explorer at the dawn", "of a magnificent age."], "size": 32, "ys": [408, 450]},
+        avoid=None if center else [(20, 0, 640, 200), (20, 200, 560, 466)],
     ), out)
 
 
