@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Song of Hero · koi pond</title>
+<meta name="description" content="A koi pond drawn in character cells. Tap the water to feed the koi.">
+<style>
+  :root { color-scheme: dark; --water: #0d2a32; --ink: #f3efe4; --ink-2: #9fb3b6; }
+  html, body { margin: 0; height: 100%; background: var(--water); overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; cursor: pointer; touch-action: manipulation; }
+  .back { position: fixed; left: 16px; top: 14px; font: 500 13px/20px ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--ink-2); text-decoration: none; }
+  .back:hover, .back:focus-visible { color: var(--ink); text-decoration: underline; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+</head>
+<body>
+<h1 class="sr">Song of Hero. Haojie Song, an AI explorer at the dawn of a magnificent age.</h1>
+<canvas id="pond" aria-label="A koi pond. Tap or click the water to throw in a handful of food; the koi rush over to eat it."></canvas>
+<a class="back" href="https://github.com/pursurer">← github.com/pursurer</a>
+<script>
+"use strict";
+/*
+ * The koi pond from the GitHub banner, live: the same koi as the course page's
+ * pond (a chain of spine nodes trailing the head, a travelling body wave, every
+ * character cell sampled against the spine and shaded from the upper left), and
+ * the same title, drawn in cells. A tap or click throws a handful of pellets
+ * from the near bank; the koi notice, rush over and eat them.
+ */
+(() => {
+  const canvas = document.getElementById("pond");
+  const ctx = canvas.getContext("2d");
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const N = 10, BEND = 0.42, BODY_END = 0.76;
+  const RAMP = " .:-=+*#%@";
+  const SUB = [0.25, 0.25, 0.75, 0.25, 0.25, 0.75, 0.75, 0.75];
+  const MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+
+  /* ── small maths, as on the course page ── */
+  const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+  const sstep = (a, b, x) => { const k = clamp((x - a) / (b - a), 0, 1); return k * k * (3 - 2 * k); };
+  const lerp = (a, b, e) => a + (b - a) * e;
+  const wrapA = a => Math.atan2(Math.sin(a), Math.cos(a));
+  const h2 = (a, b) => { let x = Math.imul(a | 0, 0x27d4eb2d) ^ Math.imul(b | 0, 0x165667b1); x = Math.imul(x ^ (x >>> 15), 0x85ebca6b); x ^= x >>> 13; x = Math.imul(x, 0xc2b2ae35); return ((x ^ (x >>> 16)) >>> 0) / 4294967296; };
+  const noise = (x, y, seed) => {
+    const xi = Math.floor(x), yi = Math.floor(y), u = sstep(0, 1, x - xi), v = sstep(0, 1, y - yi);
+    const a = h2(xi + seed * 131, yi), b = h2(xi + 1 + seed * 131, yi), c = h2(xi + seed * 131, yi + 1), d = h2(xi + 1 + seed * 131, yi + 1);
+    return lerp(lerp(a, b, u), lerp(c, d, u), v);
+  };
+  const mixC = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+  const mul = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
+  const pack = c => (clamp(c[0] | 0, 0, 255) << 16) | (clamp(c[1] | 0, 0, 255) << 8) | clamp(c[2] | 0, 0, 255);
+  const css = n => `rgb(${n >> 16},${(n >> 8) & 255},${n & 255})`;
+  const lineGlyph = (dx, dy) => { const d = Math.hypot(dx, dy) || 1; return Math.abs(dy) < 0.38 * d ? "-" : Math.abs(dx) < 0.38 * d ? "|" : dx * dy > 0 ? "\\" : "/"; };
+
+  /* ── colours: the course page's lake trial, and the four koi schemes from the banner ── */
+  const WATER = [13, 42, 50], LIGHT = [236, 230, 218], ACCENT = [232, 120, 79];
+  const DOT = LIGHT, FOOD = [212, 160, 92], SHADOW = mul(WATER, 0.3);
+  const SCHEMES = {
+    course: { red: mixC(ACCENT, [232, 92, 52], 0.5), white: LIGHT, black: mixC([58, 54, 50], [0, 0, 0], 0.2) },
+    vermilion: { red: [214, 58, 36], white: [246, 242, 234], black: [24, 22, 20] },
+    gold: { red: [230, 164, 52], white: [222, 228, 232], black: [98, 74, 42] },
+    sakura: { red: [238, 132, 128], white: [250, 240, 228], black: [66, 60, 70] },
+  };
+  for (const s of Object.values(SCHEMES)) { s.eye = [16, 15, 14]; s.fin = mixC(s.white, WATER, 0.25); }
+
+  /* ── koi body, as fractions of length: s runs from snout (0) to tail tip (1) ── */
+  const halfW = s => s < 0.1 ? 0.118 * Math.pow(Math.sin(s / 0.1 * Math.PI / 2), 0.6)
+    : s < 0.3 ? 0.118 + 0.02 * sstep(0.1, 0.3, s)
+    : 0.03 + 0.108 * (1 - sstep(0.3, BODY_END, s));
+  const tailW = s => 0.028 + 0.165 * Math.pow(sstep(0.72, 1, s), 0.85);
+  const hit = { kind: 0, across: 0, rs: 1, ra: 0 };
+  function fin(s, a, rootS, angle, reach, width) {
+    const ra = halfW(rootS) * 0.85, ca = Math.cos(angle), sa = Math.sin(angle);
+    const ds = s - rootS, da = a - ra;
+    const along = ds * ca + da * sa - reach, perp = -ds * sa + da * ca;
+    if ((along / reach) ** 2 + (perp / width) ** 2 > 1) return false;
+    hit.kind = 2; hit.rs = ds; hit.ra = da;
+    return true;
+  }
+  /* 1 body, 2 fin, 3 eye, 4 ridge, 5 barbel */
+  function classify(s, a, past, flare, ahead, lateral) {
+    hit.kind = 0; hit.across = 1; hit.rs = 1; hit.ra = 0;
+    if (ahead > 0) {
+      if (ahead < 0.05 && Math.abs(lateral - (0.042 + ahead * 0.75)) < 0.015) { hit.kind = 5; return true; }
+      return false;
+    }
+    const w = halfW(s);
+    if (s <= BODY_END && a <= w) {
+      hit.across = a / w;
+      hit.kind = s > 0.056 && s < 0.084 && hit.across > 0.5 && hit.across < 0.78 ? 3 : s > 0.3 && s < 0.6 && hit.across < 0.13 ? 4 : 1;
+      return true;
+    }
+    if (s > 0.7 && past <= 0) {
+      const tw = tailW(s) * flare;
+      if (a <= tw && s <= 0.88 + 0.12 * (a / tw)) { hit.kind = 2; hit.rs = 1; hit.ra = (a / tw) * 0.8; return true; }
+    }
+    return fin(s, a, 0.2, 0.9 + 0.45 * (flare - 1), 0.07 * flare, 0.038) || fin(s, a, 0.47, 0.75, 0.038, 0.019);
+  }
+  function markings(variety, seed) {
+    const r = j => h2(seed, j);
+    if (variety === "tancho") return { red: [{ s: 0.1, v: 0, rs: 0.052, rv: 0.06 }], black: [] };
+    const red = [];
+    if (r(1) < 0.7) red.push({ s: 0.09, v: (r(2) - 0.5) * 0.03, rs: 0.05 + r(3) * 0.03, rv: 0.1 });
+    const n = 2 + Math.floor(r(4) * 2), span = 0.42 / n;
+    for (let j = 0; j < n; j++) red.push({ s: 0.25 + span * (j + 0.5) + (r(10 + j) - 0.5) * span * 0.35, v: (r(20 + j) - 0.5) * 0.05, rs: span * (0.42 + r(30 + j) * 0.14), rv: 0.09 + r(40 + j) * 0.05 });
+    const black = [];
+    if (variety === "sanke") for (let j = 0; j < 4 + Math.floor(r(50) * 3); j++) black.push({ s: 0.25 + r(60 + j) * 0.42, v: (r(70 + j) - 0.5) * 0.15, rs: 0.021, rv: 0.025 });
+    return { red, black };
+  }
+  const inPatch = (m, s, vn, wob) => ((s - m.s) / m.rs) ** 2 + ((vn - m.v) / m.rv) ** 2 < 1 + wob;
+  function skin(f, s, vn, across) {
+    if (across > 0.9 || s > 0.74) return 0;
+    const wob = (noise(s * 13 + f.seed, vn * 28, f.seed) - 0.5) * 0.65;
+    for (const m of f.marks.black) if (inPatch(m, s, vn, wob)) return 2;
+    for (const m of f.marks.red) if (inPatch(m, s, vn, wob)) return 1;
+    return 0;
+  }
+
+  /* ── the pond: cells, the shoal, pellets and rings ── */
+  let vw = 0, vh = 0, dpr = 1, cw = 8, ch = 11, cols = 0, rows = 0, k = 1;
+  let tileRGB, tileA, glyphRGB, glyphA, glyphCode, shade, wake, wakeTmp;
+  const touched = [];
+  let fish = [], pellets = [], flights = [], rings = [], t = 0;
+  const VARIETY = ["kohaku", "sanke", "tancho", "kohaku", "sanke", "kohaku", "tancho", "sanke", "kohaku", "sanke", "kohaku", "tancho", "kohaku", "sanke"];
+  const COLOURS = ["course", "vermilion", "gold", "sakura"];
+  function shoal() {
+    const count = clamp(Math.round(vw * vh / 85000), 6, VARIETY.length);
+    fish = [];
+    for (let i = 0; i < count; i++) {
+      const r = j => h2(i * 7919 + 3, j);
+      const right = i % 2 === 0, a = right ? (r(1) - 0.5) * 0.8 : Math.PI + (r(1) - 0.5) * 0.8;
+      const L = (128 + r(2) * 52) * k, seg = L / (N - 1);
+      const nodes = new Float32Array(N * 2);
+      for (let j = 0; j < N; j++) { nodes[j * 2] = -Math.cos(a) * seg * j; nodes[j * 2 + 1] = -Math.sin(a) * seg * j; }
+      const seed = i * 97 + 13;
+      fish.push({ variety: VARIETY[i], seed, marks: markings(VARIETY[i], seed), P: SCHEMES[COLOURS[i % 4]], a, L, seg, nodes,
+        x: ((i * 0.38 + 0.15) % 1) * vw, y: (0.1 + r(3) * 0.8) * vh, depth: 0.35 + r(4) * 0.65, cruise: (24 + r(5) * 12) * k,
+        phase: r(6) * 6.28, beat: 0.5, turn: 0, noticeAt: Infinity });
+    }
+    fish.sort((p, q) => p.depth - q.depth);
+  }
+  function size() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    vw = window.innerWidth; vh = window.innerHeight;
+    cw = clamp(Math.round(vw / 150), 7, 10); ch = cw + 3;
+    /* Koi as big as on the course page's opening screen: 128-180 long, times 1.85, a little smaller on narrow screens. */
+    k = 1.85 * clamp(vw / 1000, 0.62, 1);
+    cols = Math.ceil(vw / cw); rows = Math.ceil(vh / ch);
+    canvas.width = Math.round(vw * dpr); canvas.height = Math.round(vh * dpr);
+    const n = cols * rows;
+    tileRGB = new Uint32Array(n); tileA = new Float32Array(n); glyphRGB = new Uint32Array(n); glyphA = new Float32Array(n);
+    glyphCode = new Uint16Array(n); shade = new Float32Array(n); wake = new Float32Array(n); wakeTmp = new Float32Array(n);
+    touched.length = 0;
+    shoal();
+    Mark.build();
+  }
+
+  /* One step of the shoal: the course page's wandering, plus the rush for food. */
+  function step(dt) {
+    const yLo = vh * 0.12, yHi = vh * 0.88;
+    for (const f of fish) {
+      const right = Math.cos(f.a) > 0, base = right ? 0 : Math.PI;
+      f.beat = 0.5 + 0.5 * Math.sin(t * 0.45 + f.seed);
+      let turn = Math.sin(t * 0.29 + f.seed) * 0.32 + Math.sin(t * 0.11 + f.seed * 1.7) * 0.22;
+      if (f.y < yLo) turn += right ? 0.7 : -0.7;
+      if (f.y > yHi) turn += right ? -0.7 : 0.7;
+      const tilt = wrapA(f.a - base);
+      if (Math.abs(tilt) > 1.0) turn -= Math.sign(tilt) * 1.4;
+      let hurry = 1;
+      const food = t >= f.noticeAt ? nearest(f) : null;
+      if (food) {
+        const dist = Math.hypot(food.x - f.x, food.y - f.y);
+        if (dist < f.L * 0.09) eat(food);
+        const d = wrapA(Math.atan2(food.y - f.y, food.x - f.x) - f.a);
+        f.turn = lerp(f.turn, clamp(d * 2.6, -2.4, 2.4), Math.min(1, dt * 3));
+        hurry = lerp(0.5, 1.9, sstep(f.L * 0.15, f.L * 0.7, dist));
+      } else {
+        if (!pellets.length) f.noticeAt = Infinity;
+        f.turn = lerp(f.turn, turn, Math.min(1, dt * 2));
+      }
+      f.a += f.turn * dt;
+      const speed = f.cruise * (0.65 + 0.7 * f.beat) * hurry;
+      const dx = Math.cos(f.a) * speed * dt, dy = Math.sin(f.a) * speed * dt;
+      f.x += dx; f.y += dy;
+      /* The head stays at the origin; the chain trails it, no joint bending further than BEND. */
+      const nd = f.nodes;
+      for (let j = 1; j < N; j++) { nd[j * 2] -= dx; nd[j * 2 + 1] -= dy; }
+      let bx = -Math.cos(f.a), by = -Math.sin(f.a);
+      for (let j = 1; j < N; j++) {
+        const px = nd[(j - 1) * 2], py = nd[(j - 1) * 2 + 1];
+        let vx = nd[j * 2] - px, vy = nd[j * 2 + 1] - py;
+        const d = Math.hypot(vx, vy) || 1; vx /= d; vy /= d;
+        const bend = Math.atan2(bx * vy - by * vx, bx * vx + by * vy);
+        if (Math.abs(bend) > BEND) { const r = Math.sign(bend) * BEND, c = Math.cos(r), n = Math.sin(r); vx = bx * c - by * n; vy = bx * n + by * c; }
+        nd[j * 2] = px + vx * f.seg; nd[j * 2 + 1] = py + vy * f.seg;
+        bx = vx; by = vy;
+      }
+      f.phase += dt * (2.6 + 5 * f.beat);
+      /* Swim out one side, come back in the other. */
+      const m = f.L * 1.45;
+      if (f.x > vw + m && !food) f.x = -m;
+      if (f.x < -m && !food) f.x = vw + m;
+    }
+  }
+  function nearest(f) {
+    let best = null, bd = Infinity;
+    for (const p of pellets) { const d = Math.hypot(p.x - f.x, p.y - f.y); if (d < bd) { bd = d; best = p; } }
+    return best;
+  }
+  function eat(p) {
+    pellets.splice(pellets.indexOf(p), 1);
+    rings.push({ x: p.x, y: p.y, born: t, life: 1.1, big: false, strength: 0.6 });
+  }
+
+  /* A tap throws a handful from the near bank: pellets fly in, splash, and every koi comes for them. */
+  let throws = 0;
+  function feed(x, y) {
+    if (flights.length + pellets.length > 40) return;
+    const r = j => h2(++throws * 101, j);
+    const n = 7 + Math.floor(r(1) * 4), spread = 30 * k, hand = { x: x + (x < vw / 2 ? -60 : 60) * k, y: vh + 30 };
+    for (let j = 0; j < n; j++) {
+      const a = r(10 + j) * Math.PI * 2, d = Math.sqrt(r(30 + j)) * spread;
+      flights.push({ x0: hand.x, y0: hand.y, x1: x + Math.cos(a) * d, y1: y + Math.sin(a) * d * 0.8, born: t + j * 0.04, dur: 0.5 + r(50 + j) * 0.15, first: j === 0 });
+    }
+  }
+  function land(fl) {
+    pellets.push({ x: fl.x1, y: fl.y1 });
+    rings.push({ x: fl.x1, y: fl.y1, born: t, life: 1.1, big: false, strength: 0.35 });
+    if (!fl.first) return;
+    rings.push({ x: fl.x1, y: fl.y1, born: t, life: 2.6, big: true, strength: 0.62 });
+    const far = Math.max(vw, vh);
+    for (const f of fish) f.noticeAt = Math.min(f.noticeAt, t + 0.15 + Math.hypot(f.x - fl.x1, f.y - fl.y1) / far * 1.1 + h2(f.seed, 9) * 0.3);
+  }
+  function stepFood() {
+    for (let j = flights.length - 1; j >= 0; j--) {
+      const fl = flights[j];
+      if (t - fl.born >= fl.dur) { land(fl); flights.splice(j, 1); }
+    }
+    for (let j = rings.length - 1; j >= 0; j--) if (t - rings[j].born >= rings[j].life) rings.splice(j, 1);
+  }
+  function ringAt(px, py) {
+    let best = null;
+    for (const g of rings) {
+      const age = t - g.born, life = 1 - age / g.life;
+      if (life <= 0) continue;
+      const dx = px - g.x, dy = py - g.y, d = Math.hypot(dx, dy);
+      for (let j = 0; j < (g.big ? 2 : 1); j++) {
+        const ag = age - j * 0.38;
+        if (ag <= 0) continue;
+        const R = (g.big ? ag * 74 + 26 : ag * 34 + 4) * k;
+        if (Math.abs(d - R) > cw * 0.62) continue;
+        const a = life ** 1.5 * (j ? 0.32 : g.strength);
+        if (!best || a > best.a) best = { a, g: j ? "·" : lineGlyph(-dy, dx) };
+      }
+    }
+    return best;
+  }
+
+  /* ── rasterising one koi into the cell buffers ── */
+  const spine = new Float32Array(N * 2), arc = new Float32Array(N);
+  let arcTotal = 1, S = 0, V = 0, D = 0, TX = 1, TY = 0, SEG = 0;
+  function sample(px, py, L, flareL, flareR, from = 0, to = N - 2) {
+    let best = Infinity, bs = 0, sign = 1, past = 0, ahead = 0, lateral = 0;
+    for (let n = from; n <= to; n++) {
+      const ax = spine[n * 2], ay = spine[n * 2 + 1], sx = spine[n * 2 + 2] - ax, sy = spine[n * 2 + 3] - ay;
+      const len2 = sx * sx + sy * sy || 1, raw = ((px - ax) * sx + (py - ay) * sy) / len2, u = clamp(raw, 0, 1);
+      const d2 = (px - ax - sx * u) ** 2 + (py - ay - sy * u) ** 2;
+      if (d2 < best) {
+        const len = Math.sqrt(len2), cross = sx * (py - ay) - sy * (px - ax);
+        best = d2; bs = (arc[n] + u * len) / arcTotal; sign = cross >= 0 ? 1 : -1;
+        past = n === N - 2 ? Math.max(0, raw - 1) * len : 0;
+        ahead = n === 0 ? Math.max(0, -raw) * len : 0;
+        lateral = Math.abs(cross) / len; TX = sx / len; TY = sy / len; SEG = n;
+      }
+    }
+    D = Math.sqrt(best); S = bs; V = D * sign;
+    return classify(bs, D / L, past / L, sign > 0 ? flareL : flareR, ahead / L, lateral / L);
+  }
+  function rasterize(f, dimAt) {
+    const L = f.L, P = f.P, swim = 0.25 + 0.9 * f.beat;
+    for (let n = 0; n < N; n++) {
+      const s = n / (N - 1), a = Math.max(0, n - 1), b = Math.min(N - 1, n + 1);
+      let tx = f.nodes[a * 2] - f.nodes[b * 2], ty = f.nodes[a * 2 + 1] - f.nodes[b * 2 + 1];
+      const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+      const off = L * 0.045 * (0.05 + 0.95 * Math.pow(s, 2.2)) * swim * Math.sin(f.phase - s * 4.6);
+      spine[n * 2] = f.x + f.nodes[n * 2] - ty * off;
+      spine[n * 2 + 1] = f.y + f.nodes[n * 2 + 1] + tx * off;
+    }
+    arc[0] = 0;
+    for (let n = 1; n < N; n++) arc[n] = arc[n - 1] + Math.hypot(spine[n * 2] - spine[n * 2 - 2], spine[n * 2 + 1] - spine[n * 2 - 1]);
+    arcTotal = arc[N - 1] || 1;
+    const bank = clamp(f.turn * 0.5, -0.3, 0.3), scull = 0.15 * (1 - f.beat) * Math.sin(f.phase * 0.5);
+    const flareL = 1 + scull - bank, flareR = 1 - scull + bank;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let n = 0; n < N; n++) { x0 = Math.min(x0, spine[n * 2]); x1 = Math.max(x1, spine[n * 2]); y0 = Math.min(y0, spine[n * 2 + 1]); y1 = Math.max(y1, spine[n * 2 + 1]); }
+    const reach = L * 0.27;
+    const c0 = Math.max(0, Math.floor((x0 - reach) / cw)), c1 = Math.min(cols - 1, Math.floor((x1 + reach) / cw));
+    const r0 = Math.max(0, Math.floor((y0 - reach) / ch)), r1 = Math.min(rows - 1, Math.floor((y1 + reach) / ch));
+    if (c0 > c1 || r0 > r1) return;
+    const diag = Math.hypot(cw, ch), alphaBase = 0.82 * (0.55 + 0.45 * f.depth);
+    const sdc = 1 + Math.round(f.depth * 2), sdr = 1 + Math.round(f.depth);
+    const lx = -0.6, ly = -0.8;
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        const x = c * cw, y = r * ch;
+        const got = sample(x + cw / 2, y + ch / 2, L, flareL, flareR);
+        if (!got && D > L * (S > 0.4 && S < 0.62 ? 0.15 : 0.26) + diag) { c += Math.max(0, Math.floor((D - L * 0.26 - diag) / cw)); continue; }
+        let kind = hit.kind, across = hit.across, rs = hit.rs, ra = hit.ra, s = S, v = V, tx = TX, ty = TY;
+        const from = Math.max(0, SEG - 2), to = Math.min(N - 2, SEG + 2);
+        let hits = got ? 1 : 0;
+        const deep = got && kind === 1 && s > 0.05 && s < 0.7 && halfW(s) * L - D > diag * 0.4;
+        if (deep) hits = 5;
+        for (let q = 0; !deep && q < SUB.length; q += 2) {
+          if (!sample(x + SUB[q] * cw, y + SUB[q + 1] * ch, L, flareL, flareR, from, to)) continue;
+          if (hits === 0) { kind = hit.kind; across = hit.across; rs = hit.rs; ra = hit.ra; s = S; v = V; tx = TX; ty = TY; }
+          hits++;
+        }
+        if (!hits) continue;
+        const cover = hits / 5, i = r * cols + c, dim = dimAt(x + cw / 2, y + ch / 2);
+        const side = v >= 0 ? 1 : -1;
+        let tile = null, tA = 0, g = " ", gC = null, gA = 0;
+        if (kind === 5) {
+          g = lineGlyph(tx, ty); gC = P.fin; gA = 0.7 * alphaBase;
+        } else if (kind === 2) {
+          const nx = -ty * side, ny = tx * side;
+          g = lineGlyph(rs * tx + ra * nx, rs * ty + ra * ny);
+          tile = P.fin; tA = 0.26 * cover * alphaBase;
+          gC = mul(P.fin, 1.1); gA = 0.55 * alphaBase;
+        } else {
+          const nz = Math.sqrt(Math.max(0, 1 - across * across));
+          const lit = clamp(0.76 + 0.26 * nz + 0.2 * (-ty * side * across * lx + tx * side * across * ly), 0.62, 1.08);
+          const sk = kind === 3 ? null : skin(f, s, v / L, across);
+          const base = kind === 3 ? P.eye : sk === 1 ? P.red : sk === 2 ? P.black : P.white;
+          tile = mul(base, lit); tA = (cover >= 0.6 ? 1 : cover * 1.4) * alphaBase;
+          if (kind === 3) { g = "o"; gC = P.white; gA = 0.95 * alphaBase; }
+          else {
+            const idx = clamp(1 + Math.round((1.08 - lit) / 0.46 * 6) + (kind === 4 ? 2 : 0), 1, RAMP.length - 1);
+            g = RAMP[idx]; gC = mul(base, sk === 0 ? 0.55 : 1.35); gA = 0.62 * alphaBase;
+          }
+          if (cover >= 0.6 && r + sdr < rows && c + sdc < cols) {
+            const si = (r + sdr) * cols + (c + sdc);
+            shade[si] = Math.max(shade[si], 0.55 * (0.5 + 0.5 * f.depth) * dim);
+          }
+        }
+        if (!tileA[i] && !glyphA[i]) touched.push(i);
+        if (tile) { tileRGB[i] = pack(tile); tileA[i] = tA * dim; }
+        if (gC) { glyphRGB[i] = pack(gC); glyphA[i] = gA * dim; glyphCode[i] = g.charCodeAt(0); }
+      }
+    }
+    const tc = Math.floor(spine[(N - 1) * 2] / cw), tr = Math.floor(spine[(N - 1) * 2 + 1] / ch);
+    if (tc >= 0 && tr >= 0 && tc < cols && tr < rows) wake[tr * cols + tc] = Math.min(1, wake[tr * cols + tc] + 0.18 * f.beat);
+  }
+
+  /* ── the title, drawn like "One Page" on the course page ── */
+  const Mark = (() => {
+    const NOISE = "/\\|=+*%#@";
+    let cells = [], box = null, sub = [], born = 0, mcw = 8, mch = 11;
+    function build() {
+      const narrow = vw < 720;
+      mcw = narrow ? 5 : 8; mch = narrow ? 7 : 11;
+      const lines = narrow ? ["Song of", "Hero"] : ["Song of Hero"];
+      const font = `700 ${narrow ? 120 : 200}px Georgia, "Times New Roman", serif`;
+      const m = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+      m.font = font;
+      const mets = lines.map(l => m.measureText(l));
+      const asc = Math.ceil(Math.max(...mets.map(x => x.actualBoundingBoxAscent))), desc = Math.ceil(Math.max(...mets.map(x => x.actualBoundingBoxDescent)));
+      const lh = asc + desc, tw = Math.ceil(Math.max(...mets.map(x => x.actualBoundingBoxLeft + x.actualBoundingBoxRight)));
+      const pad = Math.ceil(asc * 0.05), mw = tw + pad * 2, mh = lh * lines.length + pad * 2;
+      m.canvas.width = mw; m.canvas.height = mh;
+      m.font = font; m.fillStyle = "#000"; m.textAlign = "center";
+      lines.forEach((l, j) => m.fillText(l, mw / 2, pad + asc + j * lh));
+      const data = m.getImageData(0, 0, mw, mh).data;
+      const s = Math.min(1, Math.min(vw * 0.86, 1000) / mw);
+      const mc = Math.ceil(mw * s / mcw), mr = Math.ceil(mh * s / mch);
+      const left = Math.round((vw - mc * mcw) / 2), top = Math.round(vh * 0.42 - mr * mch / 2 - (narrow ? 30 : 40));
+      cells = [];
+      for (let r = 0; r < mr; r++) for (let c = 0; c < mc; c++) {
+        let a = 0;
+        for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) {
+          const px = Math.min(mw - 1, ((c + (i + 0.5) / 3) * mcw / s) | 0), py = Math.min(mh - 1, ((r + (j + 0.5) / 3) * mch / s) | 0);
+          a += data[(py * mw + px) * 4 + 3];
+        }
+        const v = a / (9 * 255);
+        if (v >= 0.12) cells.push({ x: left + c * mcw + mcw / 2, y: top + r * mch + mch / 2, v, h: h2(c, r), u: c / mc });
+      }
+      const subSize = narrow ? 14 : 18, gap = subSize + 6;
+      const said = narrow ? ["An AI explorer at the dawn", "of a magnificent age."] : ["An AI explorer at the dawn of a magnificent age."];
+      let y = top + mr * mch + 18 + subSize;
+      sub = said.map(text => ({ text, y: (y += gap) - gap, size: subSize, alpha: 1 }));
+      sub.push({ text: reduce ? "motion is reduced: tap to drop food" : "tap the water to feed the koi", y: y + 6, size: subSize - 4, alpha: 0.6 });
+      box ={ left: left - mcw, right: left + mc * mcw + mcw, top: top - mch, bottom: sub[sub.length - 1].y + 10 };
+      born = t;
+    }
+    function draw() {
+      const age = reduce ? 99 : t - born, band = reduce ? -9 : ((age * 0.16) % 1.9) - 0.45;
+      ctx.font = `600 ${Math.max(5, Math.round(mch * 0.8))}px ${MONO}`;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      for (const cell of cells) {
+        const settle = 0.15 + cell.h * 0.95;
+        let g, a = 1, col = `rgb(${mixC([255, 255, 255], mixC([255, 255, 255], WATER, 0.42), cell.u).map(Math.round).join(",")})`;
+        if (age < settle) { g = NOISE[(Math.random() * NOISE.length) | 0]; a = 0.25 + 0.5 * (age / settle); }
+        else {
+          g = cell.v > 0.82 ? (cell.h < 0.5 ? "#" : "@") : cell.v > 0.55 ? "%" : cell.v > 0.32 ? "+" : ":";
+          if (Math.abs(cell.u - band) < 0.022) col = css(pack(ACCENT));
+        }
+        ctx.globalAlpha = a; ctx.fillStyle = col;
+        ctx.fillText(g, cell.x, cell.y);
+      }
+      ctx.globalAlpha = 1; ctx.fillStyle = "#f3efe4";
+      for (const l of sub) {
+        ctx.globalAlpha = l.alpha;
+        ctx.font = `500 ${l.size}px ${MONO}`;
+        ctx.fillText(l.text, vw / 2, l.y);
+      }
+      ctx.globalAlpha = 1;
+    }
+    return { build, draw, box: () => box };
+  })();
+
+  /* ── one frame ── */
+  function draw(dt) {
+    for (const i of touched) { tileA[i] = 0; glyphA[i] = 0; }
+    touched.length = 0;
+    shade.fill(0);
+    /* Koi fade under the title, easing back in around it. */
+    const box = Mark.box(), pad = cw * 5;
+    const dimAt = (x, y) => {
+      const d = Math.hypot(Math.max(box.left - x, 0, x - box.right), Math.max(box.top - y, 0, y - box.bottom));
+      return 0.1 + 0.9 * sstep(0, pad, d);
+    };
+    for (const f of fish) rasterize(f, dimAt);
+    /* wake: spreads a little and fades */
+    const fade = Math.exp(-dt * 1.4);
+    for (let r = 1; r < rows - 1; r++) for (let c = 1; c < cols - 1; c++) {
+      const i = r * cols + c;
+      wakeTmp[i] = (wake[i] * 0.84 + (wake[i - 1] + wake[i + 1] + wake[i - cols] + wake[i + cols]) * 0.04) * fade;
+    }
+    [wake, wakeTmp] = [wakeTmp, wake];
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = css(pack(WATER));
+    ctx.fillRect(0, 0, vw, vh);
+    ctx.font = `600 ${Math.round(ch * 0.74)}px ${MONO}`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    const dot = css(pack(DOT)), shadow = css(pack(SHADOW));
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const i = r * cols + c, x = c * cw, y = r * ch;
+        if (shade[i] > 0) { ctx.globalAlpha = shade[i]; ctx.fillStyle = shadow; ctx.fillRect(x, y, cw, ch); }
+        if (tileA[i] > 0 || glyphA[i] > 0) continue;
+        if (rings.length) { const g = ringAt(x + cw / 2, y + ch / 2); if (g) { ctx.globalAlpha = g.a; ctx.fillStyle = dot; ctx.fillText(g.g, x + cw / 2, y + ch / 2); continue; } }
+        const w = wake[i];
+        if (w > 0.03) { ctx.globalAlpha = Math.min(0.5, w * 1.2); ctx.fillStyle = dot; ctx.fillText(w > 0.25 ? ":" : "·", x + cw / 2, y + ch / 2); continue; }
+        const h = h2(c, r);
+        if (h < 0.022) { ctx.globalAlpha = 0.1 + 0.12 * (0.5 + 0.5 * Math.sin(t * 0.9 + h * 900)); ctx.fillStyle = dot; ctx.fillText("·", x + cw / 2, y + ch / 2); }
+      }
+    }
+    for (const i of touched) {
+      const x = (i % cols) * cw, y = ((i / cols) | 0) * ch;
+      if (tileA[i] > 0) { ctx.globalAlpha = tileA[i]; ctx.fillStyle = css(tileRGB[i]); ctx.fillRect(x + 0.5, y + 0.5, cw - 1, ch - 1); }
+      if (glyphA[i] > 0 && glyphCode[i] !== 32) { ctx.globalAlpha = glyphA[i]; ctx.fillStyle = css(glyphRGB[i]); ctx.fillText(String.fromCharCode(glyphCode[i]), x + cw / 2, y + ch / 2); }
+    }
+    /* Pellets afloat sit on the surface, over the koi; pellets in the air show as "o" high up and "." low, with a shadow. */
+    const food = css(pack(FOOD)), foodG = css(pack(mul(FOOD, 0.55)));
+    for (const p of pellets) {
+      const x = Math.floor(p.x / cw) * cw, y = Math.floor(p.y / ch) * ch;
+      ctx.globalAlpha = 1; ctx.fillStyle = food; ctx.fillRect(x + 0.5, y + 0.5, cw - 1, ch - 1);
+      ctx.fillStyle = foodG; ctx.fillText("o", x + cw / 2, y + ch / 2);
+    }
+    for (const fl of flights) {
+      const u = (t - fl.born) / fl.dur;
+      if (u < 0) continue;
+      const px = lerp(fl.x0, fl.x1, u), py = lerp(fl.y0, fl.y1, u), hh = 4 * u * (1 - u);
+      const x = Math.floor(px / cw) * cw, y = Math.floor(py / ch) * ch;
+      ctx.globalAlpha = 0.25; ctx.fillStyle = shadow; ctx.fillRect(x + Math.round(hh * 3) * cw, y + Math.round(hh * 2) * ch, cw - 1, ch - 1);
+      ctx.globalAlpha = 0.95; ctx.fillStyle = food; ctx.fillText(hh > 0.4 ? "o" : ".", x + cw / 2, y + ch / 2);
+    }
+    ctx.globalAlpha = 1;
+    Mark.draw();
+  }
+
+  let last = 0, running = false;
+  function frame(now) {
+    if (!running) return;
+    requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (now - (last || now)) / 1000);
+    last = now;
+    t += dt;
+    step(dt);
+    stepFood();
+    draw(dt);
+  }
+  function start() { if (running || reduce) return; running = true; last = 0; requestAnimationFrame(frame); }
+  function stop() { running = false; }
+
+  canvas.addEventListener("pointerdown", e => {
+    feed(e.clientX, e.clientY);
+    if (reduce) { for (const fl of flights) land(fl); flights.length = 0; draw(0); }
+  });
+  document.addEventListener("visibilitychange", () => document.hidden ? stop() : start());
+  let resizeTimer = 0;
+  window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { size(); if (reduce) draw(0); }, 150); });
+  size();
+  /* For checking by screenshot: #feed=x,y&t=s throws a handful at x,y and shows the pond s seconds later, still. */
+  const demo = location.hash.match(/feed=(\d+),(\d+)&t=([\d.]+)/);
+  if (demo) {
+    feed(+demo[1], +demo[2]);
+    while (t < +demo[3]) { t += 1 / 60; step(1 / 60); stepFood(); }
+    draw(0);
+  } else if (reduce) draw(0);
+  else start();
+})();
+</script>
+</body>
+</html>

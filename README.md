@@ -1,7 +1,9 @@
+<a href="https://pursurer.github.io/pursurer/pond/" title="Feed the koi">
 <picture>
-  <source media="(max-width: 640px)" srcset="https://github.com/pursurer/pursurer/raw/main/assets/song-of-hero-mobile.svg?v=8">
-  <img src="https://github.com/pursurer/pursurer/raw/main/assets/song-of-hero.svg?v=8" alt="Song of Hero. Haojie Song, an AI explorer at the dawn of a magnificent age." width="100%">
+  <source media="(max-width: 640px)" srcset="https://github.com/pursurer/pursurer/raw/main/assets/song-of-hero-mobile.svg?v=9">
+  <img src="https://github.com/pursurer/pursurer/raw/main/assets/song-of-hero.svg?v=9" alt="Song of Hero. Haojie Song, an AI explorer at the dawn of a magnificent age. A koi pond; click to feed the koi." width="100%">
 </picture>
+</a>
 
 AI student at EPITA Paris. I build agent skills and research tools: my Seedance video skill for Codex and Claude Code ships in [awesome-seedance](https://github.com/LearnPrompt/awesome-seedance) (2.2k★), where I'm the only contributor besides the maintainer, and my paper pipeline graded 10,000+ papers from 10 AI conferences.
 
