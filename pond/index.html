@@ -358,31 +358,35 @@
     let cells = [], box = null, sub = [], born = 0, mcw = 8, mch = 11;
     function build() {
       const narrow = vw < 720;
-      mcw = narrow ? 5 : 8; mch = narrow ? 7 : 11;
-      const lines = narrow ? ["Song of", "Hero"] : ["Song of Hero"];
-      const font = `700 ${narrow ? 120 : 200}px Georgia, "Times New Roman", serif`;
+      /* As in the banner: the font squeezed to 0.8 of its width, so the letters can stand about sixteen cells tall. */
+      mcw = narrow ? 5 : 8; mch = narrow ? 7 : 10;
+      const squeeze = 0.8, lines = narrow ? ["Song of", "Hero"] : ["Song of Hero"], family = 'Georgia, "Times New Roman", serif';
       const m = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+      m.font = `700 100px ${family}`;
+      const wide = Math.max(...lines.map(l => m.measureText(l).width));
+      const font = `700 ${Math.round(Math.min(vw * 0.86, 1000) / (wide / 100 * squeeze))}px ${family}`;
       m.font = font;
       const mets = lines.map(l => m.measureText(l));
       const asc = Math.ceil(Math.max(...mets.map(x => x.actualBoundingBoxAscent))), desc = Math.ceil(Math.max(...mets.map(x => x.actualBoundingBoxDescent)));
-      const lh = asc + desc, tw = Math.ceil(Math.max(...mets.map(x => x.actualBoundingBoxLeft + x.actualBoundingBoxRight)));
+      const lh = asc + desc, tw = Math.ceil(Math.max(...mets.map(x => x.actualBoundingBoxLeft + x.actualBoundingBoxRight)) * squeeze);
       const pad = Math.ceil(asc * 0.05), mw = tw + pad * 2, mh = lh * lines.length + pad * 2;
       m.canvas.width = mw; m.canvas.height = mh;
       m.font = font; m.fillStyle = "#000"; m.textAlign = "center";
-      lines.forEach((l, j) => m.fillText(l, mw / 2, pad + asc + j * lh));
+      m.setTransform(squeeze, 0, 0, 1, mw / 2, 0);
+      lines.forEach((l, j) => m.fillText(l, 0, pad + asc + j * lh));
       const data = m.getImageData(0, 0, mw, mh).data;
-      const s = Math.min(1, Math.min(vw * 0.86, 1000) / mw);
-      const mc = Math.ceil(mw * s / mcw), mr = Math.ceil(mh * s / mch);
+      const mc = Math.ceil(mw / mcw), mr = Math.ceil(mh / mch);
       const left = Math.round((vw - mc * mcw) / 2), top = Math.round(vh * 0.42 - mr * mch / 2 - (narrow ? 30 : 40));
       cells = [];
+      /* How much of each cell the letters cover, from a 4 x 4 grid of samples. */
       for (let r = 0; r < mr; r++) for (let c = 0; c < mc; c++) {
         let a = 0;
-        for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) {
-          const px = Math.min(mw - 1, ((c + (i + 0.5) / 3) * mcw / s) | 0), py = Math.min(mh - 1, ((r + (j + 0.5) / 3) * mch / s) | 0);
+        for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) {
+          const px = Math.min(mw - 1, ((c + (i + 0.5) / 4) * mcw) | 0), py = Math.min(mh - 1, ((r + (j + 0.5) / 4) * mch) | 0);
           a += data[(py * mw + px) * 4 + 3];
         }
-        const v = a / (9 * 255);
-        if (v >= 0.12) cells.push({ x: left + c * mcw + mcw / 2, y: top + r * mch + mch / 2, v, h: h2(c, r), u: c / mc });
+        const v = a / (16 * 255);
+        if (v >= 0.22) cells.push({ x: left + c * mcw + mcw / 2, y: top + r * mch + mch / 2, v, h: h2(c, r), u: c / mc });
       }
       const subSize = narrow ? 14 : 18, gap = subSize + 6;
       const said = narrow ? ["An AI explorer at the dawn", "of a magnificent age."] : ["An AI explorer at the dawn of a magnificent age."];
@@ -394,14 +398,14 @@
     }
     function draw() {
       const age = reduce ? 99 : t - born, band = reduce ? -9 : ((age * 0.16) % 1.9) - 0.45;
-      ctx.font = `600 ${Math.max(5, Math.round(mch * 0.8))}px ${MONO}`;
+      ctx.font = `700 ${Math.max(6, Math.round(mch * 0.95))}px ${MONO}`;
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       for (const cell of cells) {
         const settle = 0.15 + cell.h * 0.95;
         let g, a = 1, col = `rgb(${mixC([255, 255, 255], mixC([255, 255, 255], WATER, 0.42), cell.u).map(Math.round).join(",")})`;
         if (age < settle) { g = NOISE[(Math.random() * NOISE.length) | 0]; a = 0.25 + 0.5 * (age / settle); }
         else {
-          g = cell.v > 0.82 ? (cell.h < 0.5 ? "#" : "@") : cell.v > 0.55 ? "%" : cell.v > 0.32 ? "+" : ":";
+          g = cell.v > 0.7 ? (cell.h < 0.5 ? "#" : "@") : cell.v > 0.45 ? "%" : cell.v > 0.3 ? "+" : ":";
           if (Math.abs(cell.u - band) < 0.022) col = css(pack(ACCENT));
         }
         ctx.globalAlpha = a; ctx.fillStyle = col;
