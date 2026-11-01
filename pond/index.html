@@ -16,7 +16,7 @@
 </head>
 <body>
 <h1 class="sr">Song of Hero. Haojie Song, an AI explorer at the dawn of a magnificent age.</h1>
-<canvas id="pond" aria-label="A koi pond. Tap or click the water to throw in a handful of food; the koi rush over to eat it."></canvas>
+<canvas id="pond" aria-label="A koi pond. Tap or click the water to throw in a handful of food; the koi rush over to eat it, then a cat's paw pats the water and they scatter."></canvas>
 <a class="back" href="https://github.com/pursurer">← github.com/pursurer</a>
 <script>
 "use strict";
@@ -25,7 +25,8 @@
  * pond (a chain of spine nodes trailing the head, a travelling body wave, every
  * character cell sampled against the spine and shaded from the upper left), and
  * the same title, drawn in cells. A tap or click throws a handful of pellets
- * from the near bank; the koi notice, rush over and eat them.
+ * from the near bank; the koi notice, rush over and eat them, circle the spot
+ * for more, and then the course page's cat paw pats it and they scatter.
  */
 (() => {
   const canvas = document.getElementById("pond");
@@ -121,7 +122,7 @@
   let vw = 0, vh = 0, dpr = 1, cw = 8, ch = 11, cols = 0, rows = 0, k = 1;
   let tileRGB, tileA, glyphRGB, glyphA, glyphCode, shade, wake, wakeTmp;
   const touched = [];
-  let fish = [], pellets = [], flights = [], rings = [], t = 0;
+  let fish = [], pellets = [], flights = [], rings = [], t = 0, spot = null, pawDue = null;
   const VARIETY = ["kohaku", "sanke", "tancho", "kohaku", "sanke", "kohaku", "tancho", "sanke", "kohaku", "sanke", "kohaku", "tancho", "kohaku", "sanke"];
   const COLOURS = ["course", "vermilion", "gold", "sakura"];
   function shoal() {
@@ -136,7 +137,7 @@
       const seed = i * 97 + 13;
       fish.push({ variety: VARIETY[i], seed, marks: markings(VARIETY[i], seed), P: SCHEMES[COLOURS[i % 4]], a, L, seg, nodes,
         x: ((i * 0.38 + 0.15) % 1) * vw, y: (0.1 + r(3) * 0.8) * vh, depth: 0.35 + r(4) * 0.65, cruise: (24 + r(5) * 12) * k,
-        phase: r(6) * 6.28, beat: 0.5, turn: 0, noticeAt: Infinity });
+        phase: r(6) * 6.28, beat: 0.5, turn: 0, noticeAt: Infinity, flee: 0, fleeA: 0, seekX: 0, seekY: 0, seekFrom: 0, seekUntil: 0, mill: null });
     }
     fish.sort((p, q) => p.depth - q.depth);
   }
@@ -169,12 +170,31 @@
       if (Math.abs(tilt) > 1.0) turn -= Math.sign(tilt) * 1.4;
       let hurry = 1;
       const food = t >= f.noticeAt ? nearest(f) : null;
-      if (food) {
+      const seek = (x, y, gain, h) => {
+        const d = wrapA(Math.atan2(y - f.y, x - f.x) - f.a);
+        f.turn = lerp(f.turn, clamp(d * gain, -2.4, 2.4), Math.min(1, dt * 3));
+        hurry = h;
+      };
+      /* A paw hit the water: dart away from it. A little later the curious ones swim back to look. */
+      if (f.flee > 0.02) {
+        f.turn = lerp(f.turn, turn, Math.min(1, dt * 2));
+        const d = wrapA(f.fleeA - f.a);
+        f.turn = lerp(f.turn, clamp(d * 5, -4, 4), Math.min(1, dt * 8 * f.flee));
+        hurry = 1 + 2.6 * f.flee;
+        f.flee *= Math.exp(-1.3 * dt);
+      } else if (food) {
         const dist = Math.hypot(food.x - f.x, food.y - f.y);
         if (dist < f.L * 0.09) eat(food);
         const d = wrapA(Math.atan2(food.y - f.y, food.x - f.x) - f.a);
         f.turn = lerp(f.turn, clamp(d * 2.6, -2.4, 2.4), Math.min(1, dt * 3));
         hurry = lerp(0.5, 1.9, sstep(f.L * 0.15, f.L * 0.7, dist));
+      } else if (t > f.seekFrom && t < f.seekUntil) {
+        if (Math.hypot(f.seekX - f.x, f.seekY - f.y) < 26 * k) f.seekUntil = 0;
+        else seek(f.seekX, f.seekY, 2.6, 1.4);
+      } else if (f.mill) {
+        /* fed, it circles the spot with the others, nosing for more, until the paw comes */
+        const m = f.mill.a + 0.35 * t;
+        seek(f.mill.x + Math.cos(m) * f.L * MILL, f.mill.y + Math.sin(m) * f.L * MILL * 0.7, 2.6, 0.6);
       } else {
         if (!pellets.length) f.noticeAt = Infinity;
         f.turn = lerp(f.turn, turn, Math.min(1, dt * 2));
@@ -211,12 +231,19 @@
   function eat(p) {
     pellets.splice(pellets.indexOf(p), 1);
     rings.push({ x: p.x, y: p.y, born: t, life: 1.1, big: false, strength: 0.6 });
+    if (pellets.length || flights.length) return;
+    /* The handful is gone: the koi that came for it circle the spot, and a moment later the cat's paw pats it. */
+    fish.forEach((f, i) => { if (f.noticeAt !== Infinity) f.mill = { x: spot.x, y: spot.y, a: i / fish.length * Math.PI * 2 }; });
+    pawDue = { x: spot.x, y: spot.y, at: t + PAW_WAIT };
   }
 
   /* A tap throws a handful from the near bank: pellets fly in, splash, and every koi comes for them. */
+  const PAW_WAIT = 1.4, MILL = 0.6;
   let throws = 0;
   function feed(x, y) {
     if (flights.length + pellets.length > 40) return;
+    spot = { x, y }; pawDue = null;
+    for (const f of fish) f.mill = null;
     const r = j => h2(++throws * 101, j);
     const n = 7 + Math.floor(r(1) * 4), spread = 30 * k, hand = { x: x + (x < vw / 2 ? -60 : 60) * k, y: vh + 30 };
     for (let j = 0; j < n; j++) {
@@ -255,6 +282,243 @@
       }
     }
     return best;
+  }
+
+  /*
+   * A cat paw fishes in the water, as on the course page; here it pats the spot once a handful is eaten. We look down on it,
+   * so only the back of the black paw shows; the pads face the water. The paw
+   * is one round little cylinder with four soft scallops at its tip. It shoots
+   * straight in from the nearer edge, dips its tip under the surface, curls
+   * its toes down and hooks the water back toward the cat in two quick tugs,
+   * flicks out with a spray of drops and shakes itself off as it leaves. The
+   * koi scatter, and a moment later the curious ones swim back to look.
+   */
+  const paws = [], drops = [];
+  const P = { dark: true, water: WATER, dot: DOT }, Z = { left: 0, top: 0, right: 0, bottom: 0 };
+  const DIP = 0.24, PULL = 0.42, FLICK = 0.72, SHAKE = 0.78, END = 1.25, DROP_LIFE = 1.2;
+  /* the leg's radius, the round hand's radius, and where the four toes sit around its tip (radians) */
+  const LEG = 8.4, HAND = 10, TOES = [-1.12, -0.38, 0.38, 1.12];
+  function poke(x, y) {
+    if (reduce || paws.length >= 3) return;
+    const fromTop = y <= vh - y, ey = fromTop ? -46 * k : vh + 46 * k;
+    /* straight in from the nearer edge; which way it sways and shakes is left to chance */
+    paws.push({ x, y, k, ex: x, ey, side: h2(Math.round(x), Math.round(y)) < 0.5 ? -1 : 1, born: t, hit: false, flung: false, drips: 0 });
+  }
+  /* Keyframes [time, value, ease into it]: o eases out, i eases in, l is linear, anything else eases both ways. */
+  const EASE = { o: u => 1 - (1 - u) ** 2.2, i: u => u ** 2.2, l: u => u };
+  function track(a, keys) {
+    if (a <= keys[0][0]) return keys[0][1];
+    for (let j = 1; j < keys.length; j++) {
+      const [t1, v1, e] = keys[j];
+      if (a > t1) continue;
+      const [t0, v0] = keys[j - 1], u = (a - t0) / (t1 - t0);
+      return v0 + (v1 - v0) * (EASE[e] || (x => x * x * (3 - 2 * x)))(u);
+    }
+    return keys[keys.length - 1][1];
+  }
+  /* The whole catch, channel by channel (time in seconds): in a little past the spot, dip, curl, tug, tug, flick, away. */
+  const BACK = [[0, 70], [0.17, -4, "o"], [DIP, 0], [PULL, 0, "l"], [0.52, 13], [0.57, 12], [0.68, 27], [FLICK, 29], [END, 84, "i"]];
+  const HIGH = [[0, 0.5], [0.17, 0.15, "o"], [DIP, 0, "i"], [FLICK - 0.02, 0, "l"], [0.86, 0.6, "o"], [END, 1.05]];
+  const SWAY = [[0, 0.06], [0.17, -0.02, "o"], [0.3, 0], [0.52, 0.03], [0.68, -0.03], [FLICK, 0], [END, 0]];
+  const CURL = [[0, 0], [0.27, 0.05], [0.38, 1, "o"], [0.52, 1, "l"], [0.56, 0.75], [0.6, 1], [FLICK, 1, "l"], [0.95, 0.5], [END, 0.3]];
+  const SINK = [[0.2, 0], [0.3, 1, "o"], [0.68, 1, "l"], [FLICK + 0.04, 0, "o"]];
+  const SQUASH = [[0, -0.12], [0.17, -0.18, "l"], [0.22, 0.2, "o"], [0.3, 0], [0.44, 0.12], [0.52, -0.1], [0.58, 0.1], [0.68, -0.12], [FLICK, -0.2], [0.86, 0.05], [END, 0]];
+  const SEEN = [[0, 0], [0.06, 1, "o"], [1.1, 1, "l"], [END, 0]];
+  /* Where a paw is in its catch: how far it is drawn back, how high, how it sways, how curled and how deep its toes are. */
+  function pawState(p) {
+    const a = t - p.born;
+    /* two quick wet shakes as it leaves, turning the paw */
+    const u = (a - SHAKE) / 0.3, shake = u > 0 && u < 1 ? 0.14 * Math.sin(u * 4 * Math.PI) * (1 - u) : 0;
+    return { back: track(a, BACK), h: track(a, HIGH), swing: (track(a, SWAY) + shake) * p.side, curl: track(a, CURL), sink: track(a, SINK), squash: track(a, SQUASH), seen: track(a, SEEN) };
+  }
+  /* How far the tip reaches in paw units: curled toes fold under, so the paw gets shorter. */
+  const tipOf = s => 5 - 4 * s.curl + HAND * 1.08;
+  /* The paw on screen: the leg turns about a shoulder beyond the edge. Centre, axis u toward the toes, v across, size k; high up it looks bigger. */
+  function pawPose(p) {
+    const s = pawState(p), K = p.k * 1.9, arm = 120;
+    let ux = p.x - p.ex, uy = p.y - p.ey;
+    const ul = Math.hypot(ux, uy) || 1; ux /= ul; uy /= ul;
+    const c = Math.cos(s.swing), n = Math.sin(s.swing), dx = ux * c - uy * n, dy = ux * n + uy * c;
+    const sx = p.x - ux * arm * K, sy = p.y - uy * arm * K, r = (arm - s.back) * K;
+    return { ...s, ux: dx, uy: dy, vx: -dy, vy: dx, cx: sx + dx * r, cy: sy + dy * r, k: K * (1 + 0.5 * s.h) };
+  }
+  function stamp(x, y, rad, amt) {
+    const c = Math.floor(x / cw), r = Math.floor(y / ch);
+    for (let dr = -rad; dr <= rad; dr++) for (let dc = -rad; dc <= rad; dc++) {
+      const cc = c + dc, rr = r + dr, d = Math.hypot(dc, dr * ch / cw);
+      if (cc < 0 || rr < 0 || cc >= cols || rr >= rows || d > rad) continue;
+      wake[rr * cols + cc] = Math.min(1, wake[rr * cols + cc] + amt * (1 - d / (rad + 1)));
+    }
+  }
+  function splash(p) {
+    p.hit = true;
+    const s = pawPose(p), tip = tipOf(s) - 3, x = s.cx + s.ux * tip * s.k, y = s.cy + s.uy * tip * s.k;
+    rings.push({ x, y, born: t, life: 2.6, big: true, strength: 0.62 });
+    stamp(x, y, 4, 0.9);
+    const reach = 280 * p.k;
+    const near = fish.map(f => ({ f, d: Math.hypot(f.x - x, f.y - y) })).sort((a, b) => a.d - b.d);
+    near.forEach(({ f, d }, i) => {
+      f.mill = null;
+      if (d < reach) { f.flee = Math.max(f.flee, 1 - d / reach * 0.7); f.fleeA = Math.atan2(f.y - y, f.x - x); }
+      /* the two curious ones come to look from either side, not at the same spot */
+      if (i < 2) { const o = (i ? 1 : -1) * 34 * p.k; f.seekX = x - s.vx * o; f.seekY = y - s.vy * o; f.seekFrom = t + 1.3 + i * 0.5; f.seekUntil = f.seekFrom + 3.5; }
+    });
+  }
+  /* The tugs stir the water in front of the curled toes. */
+  function stir(p, dt) {
+    const s = pawPose(p), tip = tipOf(s) + 2;
+    stamp(s.cx + s.ux * tip * s.k, s.cy + s.uy * tip * s.k, 2, 4 * dt);
+  }
+  /* Flicking out of the water, the paw throws a few drops back toward the cat. */
+  function fling(p) {
+    p.flung = true;
+    const s = pawPose(p), seed = Math.round(p.born * 1000);
+    for (let j = 0; j < 5; j++) {
+      const side = (j - 2) / 2, d = (30 + 36 * h2(j, seed)) * p.k;
+      const x0 = s.cx + (s.ux * tipOf(s) + s.vx * side * 8) * s.k, y0 = s.cy + (s.uy * tipOf(s) + s.vy * side * 8) * s.k;
+      drops.push({ x0, y0, x1: x0 - s.ux * d + s.vx * side * 18 * p.k, y1: y0 - s.uy * d + s.vy * side * 18 * p.k, born: t + j * 0.035, dur: 0.34 + 0.14 * h2(j + 7, seed), k: p.k });
+    }
+  }
+  /* Each shake throws a drop off the side of the tip it swings toward. */
+  function drip(p, dir) {
+    const s = pawPose(p), a0 = tipOf(s) - 4, s0 = dir * 8, seed = Math.round(p.born * 1000) + p.drips;
+    const x = s.cx + (s.ux * a0 + s.vx * s0) * s.k, y = s.cy + (s.uy * a0 + s.vy * s0) * s.k, d = (26 + 20 * h2(seed, 3)) * p.k;
+    drops.push({ x0: x, y0: y, x1: x + s.vx * dir * d - s.ux * 8 * p.k, y1: y + s.vy * dir * d - s.uy * 8 * p.k, born: t, dur: 0.3, k: p.k });
+  }
+  /*
+   * The paw is the cat's, so it is drawn the way the cat is: in cells half the
+   * pond's size, black fur edged with ':' and a little '#%' texture. In paw units
+   * al runs toward the toes and sd across: a round little hand on a round leg,
+   * its four toes only drawn as four faint arcs along the tip.
+   */
+  function drawPaw(p, z) {
+    const pose = pawPose(p), { ux, uy, vx, vy, cx, cy, k, h, sink, curl, squash, seen } = pose;
+    /* squashed as it pushes in, stretched as it shoots and flicks: shorter and wider, or longer and narrower */
+    const ka = k * (1 - 0.16 * squash), ks = k * (1 + 0.16 * squash);
+    /* Curled toes fold under the tip, and their knuckles stand out a little more. */
+    const cb = tipOf(pose) - HAND * 1.08, toe = 2.5 + 0.3 * curl, ring = HAND - toe - 1.1;
+    const smin = (a, b, m) => { const q = Math.max(m - Math.abs(a - b), 0) / m; return Math.min(a, b) - q * q * m / 4; };
+    let dist = 0;
+    const part = (al, sd) => {
+      /* a round little hand on a round leg, melted together */
+      const leg = (al > cb ? Math.hypot(al - cb, sd) : Math.abs(sd)) - LEG, hand = Math.hypot((al - cb) / 1.08, sd) - HAND;
+      dist = smin(leg, hand, 6);
+      return dist > 0 ? -1 : al < -6 ? 0 : 1;
+    };
+    const fw = cw / 2, fh = ch / 2;
+    /* the box the paw and its foreleg can cover */
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const al of [-31, 16]) for (const sd of [-11.5, 11.5]) {
+      const x = cx + ux * al * ka + vx * sd * ks, y = cy + uy * al * ka + vy * sd * ks;
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+    }
+    const i0 = Math.max(Math.floor(z.left / fw), Math.floor(x0 / fw)), i1 = Math.min(Math.ceil(z.right / fw), Math.ceil(x1 / fw));
+    const j0 = Math.max(Math.floor(z.top / fh), Math.floor(y0 / fh)), j1 = Math.min(Math.ceil(z.bottom / fh), Math.ceil(y1 / fh));
+    const nc = i1 - i0 + 1, nr = j1 - j0 + 1;
+    if (nc <= 0 || nr <= 0) return;
+    /* Each cell takes the part under its samples; a cell only partly covered is drawn fainter, so the toes stay round. */
+    const g = new Int8Array(nc * nr).fill(-1), A = new Float32Array(nc * nr), C = new Float32Array(nc * nr);
+    const reachCell = 0.6 * Math.hypot(fw, fh) / Math.min(ka, ks) + 0.3;
+    const alOf = (x, y) => ((x - cx) * ux + (y - cy) * uy) / ka, sdOf = (x, y) => ((x - cx) * vx + (y - cy) * vy) / ks;
+    for (let j = 0; j < nr; j++) for (let i = 0; i < nc; i++) {
+      const x = (i0 + i) * fw, y = (j0 + j) * fh, ac = alOf(x + fw / 2, y + fh / 2);
+      A[j * nc + i] = ac;
+      if (ac < -31 || ac > 17 || Math.abs(sdOf(x + fw / 2, y + fh / 2)) > 13) continue;
+      /* a cell well inside or outside needs no more samples than its centre */
+      const vc = part(ac, sdOf(x + fw / 2, y + fh / 2));
+      if (Math.abs(dist) > reachCell) { g[j * nc + i] = vc; C[j * nc + i] = vc >= 0 ? 1 : 0; continue; }
+      let n = 0, top = -1;
+      for (let q = 1; q < 6; q += 2) for (let r = 1; r < 6; r += 2) {
+        const sx = x + q / 6 * fw, sy = y + r / 6 * fh, v = part(alOf(sx, sy), sdOf(sx, sy));
+        if (v >= 0) { n++; if (top < 0 || v > 1) top = v; }
+      }
+      g[j * nc + i] = n >= 5 ? top : n ? -2 : -1;
+      C[j * nc + i] = n / 9;
+    }
+    const at = (i, j) => i < 0 || j < 0 || i >= nc || j >= nr ? -1 : Math.max(-1, g[j * nc + i]);
+    const wl = sink > 0 ? tipOf(pose) + 2 - 8 * sink : Infinity, halfU = 0.5 * (Math.abs(ux) * fw + Math.abs(uy) * fh) / ka;
+    /* the foreleg fades out toward the bank the cat sits on */
+    const fade = al => al < -8 ? Math.max(0, 1 - (-8 - al) / 22) ** 1.5 : 1;
+    /* The shadow falls on the water, offset more while the paw is high. */
+    const sx = fw * (2 + Math.round(h * 8)), sy = fh * (2 + Math.round(h * 6));
+    ctx.globalAlpha = (P.dark ? 0.5 : 0.24) * (1 - 0.5 * h) * seen;
+    ctx.fillStyle = P.dark ? "#000" : css(pack(mul(P.water, 0.55)));
+    ctx.beginPath();
+    for (let j = 0; j < nr; j++) for (let i = 0; i < nc; i++) {
+      const v = g[j * nc + i], al = A[j * nc + i];
+      if (v >= 0 && fade(al) > 0.4 && al < wl) ctx.rect((i0 + i) * fw + sx, (j0 + j) * fh + sy, fw, fh);
+    }
+    ctx.fill();
+    const fur = P.dark ? [16, 18, 21] : [16, 15, 14], tex = P.dark ? [44, 49, 54] : [54, 50, 46], rim = P.dark ? [150, 160, 166] : [85, 80, 74];
+    /* On dark water the fur catches a little light along its edge, or the paw would vanish. Toes under the surface are seen through the water. */
+    const lit = P.dark ? mixC(fur, rim, 0.22) : fur;
+    const wet = [fur, rim, lit].map(c => css(pack(mixC(c, P.water, 0.3)))), dry = [fur, rim, lit].map(c => css(pack(c)));
+    const texC = css(pack(tex)), dot = css(pack(P.dot));
+    /* cell edges on whole device pixels, so faint cells do not overlap into a grid */
+    const px = (n, s) => Math.round(n * s * dpr) / dpr;
+    ctx.font = `600 ${(fh * 0.8).toFixed(1)}px ${MONO}`;
+    /* The plain fur goes down first in one fill; the cells around it and their glyphs follow. */
+    const solid = new Path2D(), marks = [];
+    for (let j = 0; j < nr; j++) for (let i = 0; i < nc; i++) {
+      const v = g[j * nc + i], al = A[j * nc + i], under = al > wl, f = fade(al);
+      if (v === -1 || f <= 0) continue;
+      const x = px(i0 + i, fw), y = px(j0 + j, fh), w = px(i0 + i + 1, fw) - x, hh = px(j0 + j + 1, fh) - y;
+      const [furC, rimC, litC] = under ? wet : dry;
+      const ns = [at(i - 1, j), at(i + 1, j), at(i, j - 1), at(i, j + 1)];
+      const edge = ns.some(n => n < 0);
+      if (v === -2) { ctx.globalAlpha = C[j * nc + i] * 1.3 * f * seen; ctx.fillStyle = furC; ctx.fillRect(x, y, w, hh); continue; }
+      if (!under && f === 1 && !edge) solid.rect(x, y, w, hh);
+      else { ctx.globalAlpha = (under ? 0.8 : 1) * f * seen; ctx.fillStyle = edge ? litC : furC; ctx.fillRect(x, y, w, hh); }
+      const gx = x + fw / 2, gy = y + fh / 2;
+      if (sink > 0 && Math.abs(al - wl) < halfU) marks.push(0.7, dot, "~", gx, gy);
+      else if (edge) marks.push((P.dark ? 0.9 : 0.55) * f, rimC, ":", gx, gy);
+      else if (!under && ((i0 + i) * 7 + (j0 + j) * 13) % 4 === 0) marks.push(0.45 * f, texC, (i0 + i + j0 + j) % 3 ? "#" : "%", gx, gy);
+    }
+    ctx.globalAlpha = seen; ctx.fillStyle = dry[0]; ctx.fill(solid);
+    for (let m = 0; m < marks.length; m += 5) { ctx.globalAlpha = marks[m] * seen; ctx.fillStyle = marks[m + 1]; ctx.fillText(marks[m + 2], marks[m + 3], marks[m + 4]); }
+    /* The four toes are only four faint arcs along the tip, stroked like the cat's whiskers. */
+    ctx.lineCap = "round";
+    ctx.lineWidth = Math.max(0.8, 0.11 * k);
+    ctx.strokeStyle = dry[1];
+    for (const th of TOES) {
+      const c = Math.cos(th), n = Math.sin(th), al = cb + ring * c * 1.08, sd = ring * n;
+      const x = cx + ux * al * ka + vx * sd * ks, y = cy + uy * al * ka + vy * sd * ks, phi = Math.atan2(uy * c + vy * n, ux * c + vx * n);
+      ctx.globalAlpha = (al + toe > wl ? 0.3 : 0.5) * seen;
+      ctx.beginPath(); ctx.arc(x, y, toe * k, phi - 1.05, phi + 1.05); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+  /* Drops in flight: the shadow parts from the drop and closes in again as it lands. */
+  function drawDrops() {
+    const dot = css(pack(DOT)), shadow = css(pack(SHADOW));
+    for (const d of drops) {
+      const u = (t - d.born) / d.dur;
+      if (u < 0 || u >= 1) continue;
+      const x = Math.floor(lerp(d.x0, d.x1, u) / cw) * cw, y = Math.floor(lerp(d.y0, d.y1, u) / ch) * ch, hh = 4 * u * (1 - u);
+      const sc = Math.round(hh * 3), sr = Math.round(hh * 2);
+      if (sc || sr) { ctx.globalAlpha = 0.35; ctx.fillStyle = shadow; ctx.fillRect(x + sc * cw, y + sr * ch, cw - 1, ch - 1); }
+      ctx.globalAlpha = 0.9; ctx.fillStyle = dot; ctx.fillText(hh > 0.4 ? "o" : ".", x + cw / 2, y + ch / 2);
+    }
+  }
+  /* Moves the paws, drops and rings on by one frame. */
+  function stepPaws(dt) {
+    if (pawDue && t >= pawDue.at) { poke(pawDue.x, pawDue.y); pawDue = null; }
+    for (const p of paws) {
+      const a = t - p.born;
+      if (!p.hit && a >= DIP) splash(p);
+      if (a > PULL && a < FLICK - 0.02) stir(p, dt);
+      if (!p.flung && a >= FLICK) fling(p);
+      /* each shake throws a drop at its widest swing */
+      if (p.drips < 3 && a >= SHAKE + 0.3 * (0.12 + p.drips * 0.25)) drip(p, (p.drips++ % 2 ? -1 : 1) * p.side);
+    }
+    for (let j = paws.length - 1; j >= 0; j--) if (t - paws[j].born >= END) paws.splice(j, 1);
+    for (let j = drops.length - 1; j >= 0; j--) {
+      const d = drops[j];
+      if (t - d.born < d.dur) continue;
+      rings.push({ x: d.x1, y: d.y1, born: t, life: DROP_LIFE, big: false, strength: 0.45 });
+      stamp(d.x1, d.y1, 1, 0.5);
+      drops.splice(j, 1);
+    }
   }
 
   /* ── rasterising one koi into the cell buffers ── */
@@ -481,6 +745,9 @@
       ctx.globalAlpha = 0.25; ctx.fillStyle = shadow; ctx.fillRect(x + Math.round(hh * 3) * cw, y + Math.round(hh * 2) * ch, cw - 1, ch - 1);
       ctx.globalAlpha = 0.95; ctx.fillStyle = food; ctx.fillText(hh > 0.4 ? "o" : ".", x + cw / 2, y + ch / 2);
     }
+    drawDrops();
+    Z.right = vw; Z.bottom = vh;
+    for (const p of paws) drawPaw(p, Z);
     ctx.globalAlpha = 1;
     Mark.draw();
   }
@@ -494,6 +761,7 @@
     t += dt;
     step(dt);
     stepFood();
+    stepPaws(dt);
     draw(dt);
   }
   function start() { if (running || reduce) return; running = true; last = 0; requestAnimationFrame(frame); }
@@ -511,7 +779,7 @@
   const demo = location.hash.match(/feed=(\d+),(\d+)&t=([\d.]+)/);
   if (demo) {
     feed(+demo[1], +demo[2]);
-    while (t < +demo[3]) { t += 1 / 60; step(1 / 60); stepFood(); }
+    while (t < +demo[3]) { t += 1 / 60; step(1 / 60); stepFood(); stepPaws(1 / 60); }
     draw(0);
   } else if (reduce) draw(0);
   else start();
