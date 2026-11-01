@@ -25,8 +25,8 @@
  * pond (a chain of spine nodes trailing the head, a travelling body wave, every
  * character cell sampled against the spine and shaded from the upper left), and
  * the same title, drawn in cells. A tap or click throws a handful of pellets
- * from the near bank; the koi notice, rush over and eat them, circle the spot
- * for more, and then the course page's cat paw pats it and they scatter.
+ * from the near bank; the koi notice, rush over and eat them, drift by the spot,
+ * and then the course page's cat paw pats it and they scatter.
  */
 (() => {
   const canvas = document.getElementById("pond");
@@ -137,7 +137,7 @@
       const seed = i * 97 + 13;
       fish.push({ variety: VARIETY[i], seed, marks: markings(VARIETY[i], seed), P: SCHEMES[COLOURS[i % 4]], a, L, seg, nodes,
         x: ((i * 0.38 + 0.15) % 1) * vw, y: (0.1 + r(3) * 0.8) * vh, depth: 0.35 + r(4) * 0.65, cruise: (24 + r(5) * 12) * k,
-        phase: r(6) * 6.28, beat: 0.5, turn: 0, noticeAt: Infinity, flee: 0, fleeA: 0, seekX: 0, seekY: 0, seekFrom: 0, seekUntil: 0, mill: null });
+        phase: r(6) * 6.28, beat: 0.5, turn: 0, noticeAt: Infinity, flee: 0, fleeA: 0, seekX: 0, seekY: 0, seekFrom: 0, seekUntil: 0, fed: false });
     }
     fish.sort((p, q) => p.depth - q.depth);
   }
@@ -191,10 +191,10 @@
       } else if (t > f.seekFrom && t < f.seekUntil) {
         if (Math.hypot(f.seekX - f.x, f.seekY - f.y) < 26 * k) f.seekUntil = 0;
         else seek(f.seekX, f.seekY, 2.6, 1.4);
-      } else if (f.mill) {
-        /* fed, it circles the spot with the others, nosing for more, until the paw comes */
-        const m = f.mill.a + 0.35 * t;
-        seek(f.mill.x + Math.cos(m) * f.L * MILL, f.mill.y + Math.sin(m) * f.L * MILL * 0.7, 2.6, 0.6);
+      } else if (f.fed) {
+        /* fed, it drifts by the spot, slowly, until the paw comes */
+        f.turn = lerp(f.turn, turn, Math.min(1, dt * 2));
+        hurry = 0.5;
       } else {
         if (!pellets.length) f.noticeAt = Infinity;
         f.turn = lerp(f.turn, turn, Math.min(1, dt * 2));
@@ -232,18 +232,18 @@
     pellets.splice(pellets.indexOf(p), 1);
     rings.push({ x: p.x, y: p.y, born: t, life: 1.1, big: false, strength: 0.6 });
     if (pellets.length || flights.length) return;
-    /* The handful is gone: the koi that came for it circle the spot, and a moment later the cat's paw pats it. */
-    fish.forEach((f, i) => { if (f.noticeAt !== Infinity) f.mill = { x: spot.x, y: spot.y, a: i / fish.length * Math.PI * 2 }; });
+    /* The handful is gone: the koi that came for it drift by the spot, and a moment later the cat's paw pats it. */
+    for (const f of fish) if (f.noticeAt !== Infinity) f.fed = true;
     pawDue = { x: spot.x, y: spot.y, at: t + PAW_WAIT };
   }
 
   /* A tap throws a handful from the near bank: pellets fly in, splash, and every koi comes for them. */
-  const PAW_WAIT = 1.4, MILL = 0.6;
+  const PAW_WAIT = 1.4;
   let throws = 0;
   function feed(x, y) {
     if (flights.length + pellets.length > 40) return;
     spot = { x, y }; pawDue = null;
-    for (const f of fish) f.mill = null;
+    for (const f of fish) f.fed = false;
     const r = j => h2(++throws * 101, j);
     const n = 7 + Math.floor(r(1) * 4), spread = 30 * k, hand = { x: x + (x < vw / 2 ? -60 : 60) * k, y: vh + 30 };
     for (let j = 0; j < n; j++) {
@@ -358,7 +358,7 @@
     const reach = 280 * p.k;
     const near = fish.map(f => ({ f, d: Math.hypot(f.x - x, f.y - y) })).sort((a, b) => a.d - b.d);
     near.forEach(({ f, d }, i) => {
-      f.mill = null;
+      f.fed = false;
       if (d < reach) { f.flee = Math.max(f.flee, 1 - d / reach * 0.7); f.fleeA = Math.atan2(f.y - y, f.x - x); }
       /* the two curious ones come to look from either side, not at the same spot */
       if (i < 2) { const o = (i ? 1 : -1) * 34 * p.k; f.seekX = x - s.vx * o; f.seekY = y - s.vy * o; f.seekFrom = t + 1.3 + i * 0.5; f.seekUntil = f.seekFrom + 3.5; }

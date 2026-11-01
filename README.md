@@ -1,7 +1,7 @@
 <a href="https://pursurer.github.io/pursurer/pond/" title="Feed the koi">
 <picture>
-  <source media="(max-width: 640px)" srcset="https://github.com/pursurer/pursurer/raw/main/assets/song-of-hero-mobile.svg?v=11">
-  <img src="https://github.com/pursurer/pursurer/raw/main/assets/song-of-hero.svg?v=11" alt="Song of Hero. Haojie Song, an AI explorer at the dawn of a magnificent age. A koi pond; click to feed the koi." width="100%">
+  <source media="(max-width: 640px)" srcset="https://github.com/pursurer/pursurer/raw/main/assets/song-of-hero-mobile.svg?v=12">
+  <img src="https://github.com/pursurer/pursurer/raw/main/assets/song-of-hero.svg?v=12" alt="Song of Hero. Haojie Song, an AI explorer at the dawn of a magnificent age. A koi pond; click to feed the koi." width="100%">
 </picture>
 </a>
 

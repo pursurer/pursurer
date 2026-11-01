@@ -238,135 +238,121 @@ def line_glyph(dx, dy):
     return "-" if abs(dy) < 0.38 * d else "|" if abs(dx) < 0.38 * d else "\\" if dx * dy > 0 else "/"
 
 
-# ── a koi's beat round the pond, stepped like the course page ──
+# ── the koi crossing the pond, stepped like the course page ──
 
 def wrap(a):
     return (a + pi) % (2 * pi) - pi
 
 
-def beat_path(loop, spot, seed, n=1440):
-    """The closed path a koi keeps to: an oval or a figure eight, wobbling a little, laid
-    so it runs through `spot` at its `through` angle. Returns n points evenly spaced along
-    it in the koi's direction, the first one at `spot`, and its length."""
-    (ra, rb), tilt, sign = loop["size"], loop.get("tilt", 0), loop.get("dir", 1)
-    wob, wob_at = loop.get("wob", 0.08), h2(seed, 9) * 2 * pi
-
-    def at(th):
-        x, y = (ra * cos(th), rb * sin(th)) if loop["shape"] == "oval" else (ra * sin(th), rb * sin(2 * th))
-        r = 1 + wob * sin(3 * th + wob_at)
-        return x * r * cos(tilt) - y * r * sin(tilt), x * r * sin(tilt) + y * r * cos(tilt)
-    th0 = loop.get("through", 0)
-    ox, oy = at(th0)
-    raw = [(spot[0] + x - ox, spot[1] + y - oy) for x, y in (at(th0 + sign * 2 * pi * i / n) for i in range(n + 1))]
-    arc = [0.0]
-    for i in range(1, n + 1):
-        arc.append(arc[-1] + hypot(raw[i][0] - raw[i - 1][0], raw[i][1] - raw[i - 1][1]))
-    pts, j = [], 0
-    for i in range(n):
-        s = arc[-1] * i / n
-        while arc[j + 1] < s:
-            j += 1
-        u = (s - arc[j]) / (arc[j + 1] - arc[j] or 1)
-        pts.append((lerp(raw[j][0], raw[j + 1][0], u), lerp(raw[j][1], raw[j + 1][1], u)))
-    return pts, arc[-1]
-
-
 GULP = 0.6                  # seconds a koi takes to swallow a pellet before it can take the next
-MILL = 0.6                  # fed, the koi circle the spot this many koi lengths out, waiting for more
 SETTLE = 4                  # seconds at the end of the cycle over which the koi ease into the calm cycle
 PAW_WAIT = 1.4              # seconds after the last pellet goes before the cat's paw pats the spot
+PAST = 1.15                 # koi lengths past the edge a koi swims before it comes back in at the other side
+PAUSE = (12, 6)             # over this many seconds from the pellets landing a feeding koi's crossing runs this many late
+BAND = (0.1, 0.9)           # the koi turn back toward the middle above and below these shares of the height
 
 
 def swim(fish, feed, w, h):
-    """The koi of a banner swimming together through one feed cycle, stepped like the course page's pond.
+    """The koi of a banner swimming together through one feed cycle, the way the course page's pond swims them.
 
-    Each koi keeps to its own beat, a closed path through the spot the pellets land
-    on, going round it `laps` times a cycle and passing the spot `arrive` seconds in.
-    It steers for a point a little ahead of itself on the path, wandering as it goes,
-    and speeds up when it is behind time and eases off when it is ahead. The head
-    leads and the chain trails it, no joint bending more than BEND, so the body curves
-    through every turn. The pond is first stepped this way, cycle after cycle, until a
-    cycle ends where it began: the calm cycle.
+    Each koi swims across the pond, left or right, wanders as it goes, turns back
+    toward the middle near the top and bottom, never tilts more than a radian off
+    level, and once it is out past one side comes back in at the other, as on the
+    course page. Here it also crosses exactly once a cycle and keeps near its lane's
+    height, so the cycle can repeat: it speeds up when it is behind time and eases
+    off when it is ahead. A koi that feeds has its time run late (PAUSE) while it is
+    at the pellets, and swims faster the rest of the cycle. The head leads and the chain trails it, no joint bending
+    more than BEND, so the body curves through every turn. The pond is first stepped
+    this way, cycle after cycle, until a cycle ends where it began: the calm cycle.
 
     The cycle as drawn starts from the calm one's start. Once the pellets land, every
-    koi goes for them after its own `notice` delay: it darts over, slows down near them,
+    koi that `feeds` goes for them after its own `notice` delay: it darts over, slows down near them,
     and the koi pick the pellets off between them, each taking the one nearest its snout,
-    one per GULP. Fed, they circle the spot until the cat's paw pats it, PAW_WAIT after
+    one per GULP. Fed, they drift by the spot until the cat's paw pats it, PAW_WAIT after
     the last pellet goes (see paw_pose): as on the course page, every koi in reach darts
-    away (turning along the bank rather than out of the banner, as the course page keeps
-    its koi in their band) and the two nearest come back to look a moment later. Then each makes for where
-    it would be in the calm cycle, and over the last SETTLE seconds eases into it, so the
-    loop has no seam. Returns each koi's frames, one every
-    FRAME, as (time, spine, flare_l, flare_r), when each pellet was eaten, when the paw
-    comes, and how far (px) the koi still were from the calm cycle when they began to ease in."""
-    C, paw, (fx, fy) = feed["cycle"], feed["paw"], feed["at"]
+    away, here on toward the side its lane goes (turning along the bank rather than out
+    of the banner), so none circles back. Then each swims on across, catching up with
+    its time, and the first time it is out past the side together with its calm self,
+    they change places; one that never is eases into the calm cycle over the last
+    SETTLE seconds, so the loop has no seam. Returns each
+    koi's frames, one every FRAME, as (time, spine, flare_l, flare_r), when each pellet was
+    eaten, when the paw comes, and how far (px) a koi that had to ease in still was from the
+    calm cycle when it began to."""
+    C, paw = feed["cycle"], feed["paw"]
     steps, every = round(C / SIM_DT), round(FRAME / SIM_DT)
     # The course page's beat and wander, at whole numbers per cycle so they repeat; the body
     # wave's base rate is nudged so the wave (and the sculling, at half its rate) repeat too.
     om = 2 * pi / C
     wave = round((2.6 + 2.5) * C / (4 * pi)) * 2 * om - 2.5
-    # Where the paw's toes hit the water, and which way across the paw is, whenever it comes.
+    y_lo, y_hi = h * BAND[0], h * BAND[1]
+    # Where the paw's toes hit the water, whenever it comes.
     pose = paw_pose(paw, paw["born"] + DIP)
     tip = tip_of(pose) - 3
     hit = (pose["cx"] + pose["ux"] * tip * pose["k"], pose["cy"] + pose["uy"] * tip * pose["k"])
-    def beat_due(laps, arrive, total):
-        """Where on its path (px along it) a koi is due at time t."""
-        return lambda t: (laps * (t - arrive) / C % 1) * total
+    def late(f):
+        """A koi's time on its crossing: a feeding koi's runs late while it is at the pellets."""
+        if not f.get("feeds"):
+            return lambda t: t
+        return lambda t: t - PAUSE[1] * sstep(feed["land"], feed["land"] + PAUSE[0], t)
     koi = []
-    for o, f in enumerate(fish):
-        pts, total = beat_path(f["loop"], feed["at"], f["seed"])
-        laps, arrive = f["loop"].get("laps", 1), f["loop"].get("arrive", 0)
-        due = beat_due(laps, arrive, total)
-        n0 = round(due(0) / total * len(pts)) % len(pts)
-        (x, y), (nx, ny) = pts[n0], pts[(n0 + 4) % len(pts)]
-        a, seg = atan2(ny - y, nx - x), f["L"] / (N - 1)
-        koi.append({"f": f, "pts": pts, "total": total, "due": due, "v": laps * total / C, "lead": f["L"] * 0.45, "near": n0,
-                    "laps": laps, "arrive": arrive,
-                    "mill": 2 * pi * o / len(fish), "x": x, "y": y, "a": a, "turn": 0.0, "phase": h2(f["seed"], 5) * 2 * pi,
-                    "nodes": [(x - cos(a) * seg * j, y - sin(a) * seg * j) for j in range(N)]})
-    state = ("x", "y", "a", "turn", "phase", "near")
+    for f in fish:
+        L, (lane_y, way, at) = f["L"], (f["lane"][q] for q in ("y", "dir", "pass"))
+        span, due = w + 2 * PAST * L, late(f)
+        v = span / due(C)
+        # its head at t = 0, so it passes the spot's x at `pass` seconds
+        x = (feed["at"][0] - way * v * due(at) + PAST * L) % span - PAST * L
+        a, seg = (0 if way > 0 else pi), L / (N - 1)
+        koi.append({"f": f, "span": span, "way": way, "lane": lane_y, "x0": x, "v": v, "due": due,
+                    "x": x, "y": lane_y, "a": a, "turn": 0.0, "phase": h2(f["seed"], 5) * 2 * pi,
+                    "nodes": [(x - cos(a) * seg * j, lane_y - sin(a) * seg * j) for j in range(N)]})
+    state = ("x", "y", "a", "turn", "phase")
+
+    def across(k, dx):
+        """dx between two points of a koi's crossing, the shorter way round."""
+        return (dx + k["span"] / 2) % k["span"] - k["span"] / 2
 
     def cycle(events):
         """Steps the pond through one cycle, from the koi as they are; returns when the pellets went and the paw came."""
         left, eaten, born, dip = dict(enumerate(feed["pellets"])) if events else {}, {}, inf, inf
         for k in koi:
-            k.update(frames=[], track=[], gulp=0, flee=0.0, flee_a=0.0, seek=None)
+            k.update(frames=[], gulp=0, flee=0.0, flee_a=0.0, off=False, busy=0)
         for i in range(steps):
             t = i * SIM_DT
             if events and t >= dip and born is not None:
-                # The paw hits the water: dart away from it. The two nearest swim back to look,
-                # from either side, not at the same spot.
+                # The paw hits the water: dart away from it.
                 reach = 280 * paw["k"]
-                for o, k in enumerate(sorted(koi, key=lambda k: hypot(k["x"] - hit[0], k["y"] - hit[1]))):
+                for k in koi:
                     d = hypot(k["x"] - hit[0], k["y"] - hit[1])
                     if d < reach:
-                        k["flee"], k["flee_a"] = max(k["flee"], 1 - d / reach * 0.7), atan2(k["y"] - hit[1], k["x"] - hit[0])
-                    if o < 2:
-                        s = (1 if o else -1) * 34 * paw["k"]
-                        k["seek"] = (hit[0] - pose["vx"] * s, hit[1] - pose["vy"] * s, t + 1.3 + o * 0.5, t + 4.8 + o * 0.5)
-                    k["near"] = None
+                        # away from it, on toward the side its lane goes, so it need not turn back after
+                        fa = atan2(k["y"] - hit[1], k["x"] - hit[0])
+                        k["flee"], k["flee_a"] = max(k["flee"], 1 - d / reach * 0.7), fa if cos(fa) * k["way"] >= 0 else pi - fa
                 paw_born, born = born, None
             for k in koi:
-                f, pts = k["f"], k["pts"]
+                f = k["f"]
                 L, seed, x, y, a = f["L"], f["seed"], k["x"], k["y"], k["a"]
                 beat = 0.5 + 0.5 * sin(2 * om * t + seed)
-                target = sin(om * t + seed) * 0.32 + sin(3 * om * t + seed * 1.7) * 0.22
-                hurry, goal, seek = 1.0, None, k["seek"]
+                # the course page's wander, and its band: turn back toward the middle near the top
+                # and bottom, and never tilt more than a radian off level
+                right = cos(a) > 0
+                turn = sin(om * t + seed) * 0.32 + sin(3 * om * t + seed * 1.7) * 0.22
+                if y < y_lo:
+                    turn += 0.7 if right else -0.7
+                if y > y_hi:
+                    turn += -0.7 if right else 0.7
+                tilt = wrap(a - (0 if right else pi))
+                if abs(tilt) > 1.0:
+                    turn -= 1.4 if tilt > 0 else -1.4
+                goal = None
                 if k["flee"] > 0.02:
                     fa = k["flee_a"]
                     if (y < h * 0.2 and sin(fa) < 0) or (y > h * 0.8 and sin(fa) > 0):
                         k["flee_a"] = fa = 0 if cos(fa) >= 0 else pi
-                    if (x < w * 0.08 and cos(fa) < 0) or (x > w * 0.92 and cos(fa) > 0):
-                        k["flee_a"] = fa = pi / 2 if sin(fa) >= 0 else -pi / 2
-                    d = wrap(fa - a)
-                    k["turn"] = lerp(k["turn"], clamp(d * 5, -4, 4), min(1, SIM_DT * 8 * k["flee"]))
-                    hurry = 1 + 2.6 * k["flee"]
-                    speed = f["cruise"] * hurry
+                    k["turn"] = lerp(k["turn"], turn, min(1, SIM_DT * 2))
+                    k["turn"] = lerp(k["turn"], clamp(wrap(fa - a) * 5, -4, 4), min(1, SIM_DT * 8 * k["flee"]))
+                    speed = f["cruise"] * (1 + 2.6 * k["flee"])
                     k["flee"] *= exp(-1.3 * SIM_DT)
-                elif seek and seek[2] < t < seek[3] and hypot(seek[0] - x, seek[1] - y) >= 26 * paw["k"]:
-                    goal, hurry = seek[:2], 1.4
-                    speed = f["cruise"] * hurry
-                elif left and t >= feed["land"] + f.get("notice", 0):
+                elif left and f.get("feeds") and t >= feed["land"] + f.get("notice", 0):
                     j, (gx, gy) = min(left.items(), key=lambda kv: hypot(kv[1][0] - x, kv[1][1] - y))
                     dist = hypot(gx - x, gy - y)
                     if dist < L * 0.09 and t >= k["gulp"]:
@@ -375,42 +361,38 @@ def swim(fish, feed, w, h):
                         if not left:
                             born = t + PAW_WAIT
                             dip = born + DIP
-                    goal, hurry, k["near"] = (gx, gy), lerp(0.5, 1.9, sstep(L * 0.15, L * 0.7, dist)), None
-                    speed = f["cruise"] * hurry
-                elif events and t < dip and t > feed["land"]:
-                    # fed, it circles the spot with the others, nosing for more
-                    m = k["mill"] + 0.35 * t
-                    goal, hurry = (fx + cos(m) * L * MILL, fy + sin(m) * L * MILL * 0.7), 0.6
-                    speed = f["cruise"] * hurry
-                elif events and k["near"] is None:
-                    # back from a chase: it makes for where it would be in the calm cycle a moment
-                    # from now, at the pace that gets it there
-                    goal, hurry = k["calm"][(i + round(0.35 / SIM_DT)) % steps], 1.2
-                    speed = clamp(hypot(goal[0] - x, goal[1] - y) / 0.35, 0.5 * k["v"], 2.4 * k["v"])
+                    goal, k["off"] = (gx, gy), True
+                    speed = f["cruise"] * lerp(0.5, 1.9, sstep(L * 0.15, L * 0.7, dist))
+                elif events and feed["land"] < t < dip and k["off"]:
+                    # fed, it drifts by the spot, slowly, nosing for more
+                    k["turn"] = lerp(k["turn"], turn, min(1, SIM_DT * 2))
+                    speed = f["cruise"] * 0.5
                 else:
-                    # On its beat it keeps to the nearest point of the path, looked for near the last one.
-                    n, m, total, due = len(pts), k["near"], k["total"], k["due"](t)
-                    reach = round(k["lead"] / total * n)
-                    if m is None:
-                        m = round(due / total * n) % n
-                        goal = pts[(m + reach) % n]
-                        speed = k["v"] * clamp(hypot(goal[0] - x, goal[1] - y) / k["lead"], 0.5, 2.4)
-                        if hypot(pts[m][0] - x, pts[m][1] - y) < L * 0.3:
-                            k["near"] = m
+                    # its crossing: keep near its lane's height, and to time; back from a chase,
+                    # it first turns the way its lane goes if it faces the other way
+                    if cos(a) * k["way"] < 0:
+                        turn += clamp(wrap((0 if k["way"] > 0 else pi) - a) * 2, -2.4, 2.4)
                     else:
-                        m = min(range(m - 40, m + 41), key=lambda q: (pts[q % n][0] - x) ** 2 + (pts[q % n][1] - y) ** 2) % n
-                        k["near"], goal = m, pts[(m + reach) % n]
-                        ahead = (m / n * total - due + total / 2) % total - total / 2
-                        speed = k["v"] * clamp(1 - ahead / k["lead"], 0.5, 2.0)
+                        # level out, toward its lane's height
+                        turn += clamp((k["lane"] - y) / h * 3, -0.8, 0.8) * (1 if right else -1) - 0.9 * tilt
+                    k["turn"] = lerp(k["turn"], turn, min(1, SIM_DT * 2))
+                    ahead = across(k, k["way"] * (x - k["x0"]) - k["v"] * k["due"](t))
+                    speed = k["v"] * clamp(1 - ahead / (L * 0.45), 0.5, 2.0)
+                if events and (k["flee"] > 0.02 or goal or (k["off"] and t < dip)):
+                    k["busy"] = t
                 if goal:
                     d = wrap(atan2(goal[1] - y, goal[0] - x) - a)
-                    target = target * 0.4 + clamp(d * (2.6 if hurry != 1 else 1.4), -2.4, 2.4)
-                    k["turn"] = lerp(k["turn"], target, min(1, SIM_DT * (3 if hurry != 1 else 2)))
+                    k["turn"] = lerp(k["turn"], turn * 0.4 + clamp(d * 2.6, -2.4, 2.4), min(1, SIM_DT * 3))
                 a += k["turn"] * SIM_DT
                 speed *= 0.65 + 0.7 * beat
                 x, y = x + cos(a) * speed * SIM_DT, y + sin(a) * speed * SIM_DT
-                k["x"], k["y"], k["a"] = x, y, a
                 nodes, seg = k["nodes"], L / (N - 1)
+                # out past one side, it comes back in at the other
+                shift = -k["span"] if x > w + PAST * L else k["span"] if x < -PAST * L else 0
+                if shift:
+                    x += shift
+                    nodes[:] = [(px + shift, py) for px, py in nodes]
+                k["x"], k["y"], k["a"] = x, y, a
                 nodes[0] = (x, y)
                 bx, by = -cos(a), -sin(a)
                 for j in range(1, N):
@@ -425,7 +407,6 @@ def swim(fish, feed, w, h):
                     nodes[j] = (px + vx * seg, py + vy * seg)
                     bx, by = vx, vy
                 k["phase"] += SIM_DT * (wave + 5 * beat)
-                k["track"].append((x, y))
                 if (i + 1) % every == 0:
                     sw = 0.25 + 0.9 * beat
                     spine = []
@@ -442,28 +423,50 @@ def swim(fish, feed, w, h):
         if events:
             assert not left and born is None, "the pellets are not all eaten in time for the paw"
             return eaten, paw_born
-    # the calm cycle
+
+    def apart(k, p, q):
+        return hypot(across(k, p[0] - q[0]), p[1] - q[1])
+    # The calm cycle. The course page's turns at the band and the tilt limit are sudden, so it
+    # settles only to within a few px; the last SETTLE seconds close that up too.
     for _ in range(12):
         start = [(dict((q, k[q]) for q in state), list(k["nodes"])) for k in koi]
         cycle(False)
-        if max(hypot(p[0] - q[0], p[1] - q[1]) for k, (_, s) in zip(koi, start) for p, q in zip(k["nodes"], s)) < 0.1:
+        if max(apart(k, p, q) for k, (_, s) in zip(koi, start) for p, q in zip(k["nodes"], s)) < 0.1:
             break
-    else:
-        raise AssertionError("the calm cycle never settles")
-    calm = [sorted(k["frames"], key=lambda fr: fr[0]) for k in koi]
+    drift = max(apart(k, p, q) for k, (_, s) in zip(koi, start) for p, q in zip(k["nodes"], s))
+    assert drift < 12, f"the calm cycle still drifts {drift:.1f} px a cycle"
+    calm = []
+    for k, (_, s) in zip(koi, start):
+        off = [(across(k, q[0] - p[0]), q[1] - p[1]) for p, q in zip(k["nodes"], s)]
+        calm.append([(t, [(x + u * ox, y + u * oy) for (x, y), (ox, oy) in zip(spine, off)], fl, fr)
+                     for t, spine, fl, fr in sorted(k["frames"], key=lambda fr: fr[0])
+                     for u in [1 if t == 0 else sstep(C - SETTLE, C, t)]])
     for k, (st, nodes) in zip(koi, start):
-        k.update(st, nodes=list(nodes), calm=k["track"])
+        k.update(st, nodes=list(nodes))
     eaten, born = cycle(True)
     busy = [sorted(k["frames"], key=lambda fr: fr[0]) for k in koi]
-    # In the last seconds every koi eases into the calm cycle, so the loop has no seam.
-    m = round((C - SETTLE) / FRAME)
-    gap = max(hypot(b[m][1][0][0] - c[m][1][0][0], b[m][1][0][1] - c[m][1][0][1]) for b, c in zip(busy, calm))
-    loops = []
-    for frames, quiet in zip(busy, calm):
+    # Once a koi is back on its crossing, it changes places with its calm self the first time
+    # both are out past the side together, where no one sees it. A koi that never is eases
+    # into the calm cycle over the last SETTLE seconds instead, moved across first if it has
+    # come back in at the other side than its calm self. The loop has no seam either way.
+    def hidden(spine, L):
+        xs = [p[0] for p in spine]
+        return max(xs) + L * 0.3 < 0 or min(xs) - L * 0.3 > w
+    m, gap, loops = round((C - SETTLE) / FRAME), 0, []
+    for k, frames, quiet in zip(koi, busy, calm):
+        L = k["f"]["L"]
+        swap = next((n for n in range(ceil(k["busy"] / FRAME) + 1, len(frames))
+                     if hidden(frames[n][1], L) and hidden(quiet[n][1], L)), None)
+        if swap:
+            loops.append(quiet[:1] + frames[1:swap] + quiet[swap:])
+            continue
+        gap = max(gap, apart(k, frames[m][1][0], quiet[m][1][0]))
         out = []
         for (t, spine, fl, fr), (_, spine2, fl2, fr2) in zip(frames, quiet):
             u = 1 if t == 0 else sstep(C - SETTLE, C - 0.3, t)
-            out.append((t, [(lerp(p[0], q[0], u), lerp(p[1], q[1], u)) for p, q in zip(spine, spine2)], lerp(fl, fl2, u), lerp(fr, fr2, u)))
+            dx = spine2[0][0] + across(k, spine[0][0] - spine2[0][0]) - spine[0][0]
+            out.append((t, [(lerp(p[0] + dx, q[0], u), lerp(p[1], q[1], u)) for p, q in zip(spine, spine2)],
+                        lerp(fl, fl2, u), lerp(fr, fr2, u)))
         loops.append(out)
     return loops, eaten, born, gap
 
@@ -819,8 +822,9 @@ def flipbook(ids, times, cycle, T0):
     does what one CSS animation per frame did, so the browser has far less to keep track of."""
     keys, vals = ([0.0], ["z"]) if times[0] > 0 else ([], [])
     for i, t in zip(ids, times):
-        keys.append(t / cycle)
-        vals.append(i)
+        if not vals or vals[-1] != (i or "z"):
+            keys.append(t / cycle)
+            vals.append(i or "z")
     if times[-1] + FRAME < cycle - FRAME / 2:
         keys.append((times[-1] + FRAME) / cycle)
         vals.append("z")
@@ -981,6 +985,7 @@ def banner(w, h, pond, cell, fish, title, subtitle, feed, koi=None, k=1):
         f = dict(f, marks=markings(f["variety"], f["seed"]))
         skin = palette(pond, f.get("colours", koi))     # a koi may carry its own colour scheme
         ids, trail = [], []
+        reach = f["L"] * 0.3
         for n, (t, spine, fl, fr) in enumerate(frames[-12:] + frames, -12):
             # The wake: the cells the tail tip has just left, fading behind it. The cycle's
             # last frames come just before its first, so they lay the first frames' wake.
@@ -988,6 +993,10 @@ def banner(w, h, pond, cell, fish, title, subtitle, feed, koi=None, k=1):
             if not trail or trail[-1] != tc:
                 trail = (trail + [tc])[-8:]
             if n < 0:
+                continue
+            xs = [p[0] for p in spine]
+            if max(xs) + reach < 0 or min(xs) - reach > w:     # out past the side, before it comes back in
+                ids.append(None)
                 continue
             cells, shadow, shade = rasterise(f, spine, fl, fr, cw, ch, skin)
             for j, wc in enumerate(reversed(trail[:-1])):
@@ -998,7 +1007,8 @@ def banner(w, h, pond, cell, fish, title, subtitle, feed, koi=None, k=1):
             frames_def.append(f'<g id="{ids[-1]}" transform="matrix({cw} 0 0 {ch} {c0 * cw} {r0 * ch + ch / 2:g})">{body}</g>')
         lives.append(flipbook(ids, [t for t, *_ in frames], cycle, T0))
         if "still_at" in f:     # with reduced motion, the koi with a still_at hold still at that moment of the cycle
-            stills.append(f'<use class="still" xlink:href="#{ids[min(range(len(frames)), key=lambda n: abs(frames[n][0] - f["still_at"]))]}"/>')
+            seen = [n for n in range(len(frames)) if ids[n]]
+            stills.append(f'<use class="still" xlink:href="#{ids[min(seen, key=lambda n: abs(frames[n][0] - f["still_at"]))]}"/>')
     ids, times = [], []
     for n, (t, cells) in enumerate(feeding(feed, spots, eaten, cw, ch, P)):
         c0, r0 = min(c for c, _ in cells), min(r for _, r in cells)
@@ -1140,50 +1150,49 @@ def write(name, svg, out=OUT):
     (out / name).write_text("\n".join(line for line in lines if line) + "\n")
 
 
-# The koi keep to the middle of the pond, each on its own beat: a closed path, an oval
-# (size: half its width and height) or a figure eight (size: half its width, and the height
-# of each of its loops), tilted by `tilt`, that runs through the feed's spot at its
-# `through` angle, so they cross there from every side. dir: which way round; arrive: the
-# second of the cycle it passes the spot. A handful of pellets is thrown from `hand` at
-# `throw` seconds each cycle and lands around `at`; every koi rushes it after its `notice`
-# delay, and once they have eaten it all and circle the spot, the cat's paw pats it and
-# they scatter. L and cruise are the course page's (128-180 long, 24-36 px/s); each banner scales
-# them by its k like the page's opening screen, where the koi are 1.85 times that. The
-# varieties and seeds start with the course page's shoal, so those markings match.
-# colours: a KOI_COLOURS scheme. at_load: seconds into the cycle when the banner loads.
+# The koi swim across the pond as on the course page, each in its lane: `y` the height it
+# keeps near, `dir` 1 to swim right and -1 left, `pass` the second of the cycle it passes
+# the feeding spot. A handful of pellets is thrown from `hand` at `throw` seconds each cycle
+# and lands around `at`; the koi that `feed` pass near it then and rush it after their
+# `notice` delay, and once they have eaten it all, the cat's paw pats the spot and they
+# scatter. The others pass the middle later, while the feeders are away. L and cruise are
+# the course page's (128-180 long, 24-36 px/s); each banner scales them by its k like the
+# page's opening screen, where the koi are 1.85 times that. The varieties and seeds start
+# with the course page's shoal, so those markings match. colours: a KOI_COLOURS scheme.
+# at_load: seconds into the cycle when the banner loads.
 DESKTOP_K = 1.85
-DESKTOP_FEED = {"at": (680, 160), "count": 22, "spread": 90, "hand": (760, 340), "throw": 0.6, "cycle": 24, "at_load": 0}
+DESKTOP_FEED = {"at": (680, 160), "count": 18, "spread": 80, "hand": (760, 340), "throw": 0.6, "cycle": 32, "at_load": 0}
 DESKTOP_KOI = [
-    {"variety": "kohaku", "seed": 13, "L": 150, "depth": 0.95, "cruise": 32, "colours": "course", "notice": 0.1, "still_at": 4,
-     "loop": {"shape": "oval", "size": (290, 68), "through": pi / 2, "arrive": 2.0}},
-    {"variety": "sanke", "seed": 110, "L": 140, "depth": 0.75, "cruise": 32, "colours": "vermilion", "notice": 0.2, "still_at": 4,
-     "loop": {"shape": "oval", "size": (300, 58), "through": -pi / 2, "arrive": 14.5}},
-    {"variety": "tancho", "seed": 207, "L": 135, "depth": 0.55, "cruise": 30, "colours": "gold", "notice": 0.4, "still_at": 4,
-     "loop": {"shape": "eight", "size": (330, 70), "tilt": 0.12, "arrive": 7.0}},
-    {"variety": "kohaku", "seed": 304, "L": 145, "depth": 0.85, "cruise": 30, "colours": "sakura", "notice": 0.3,
-     "loop": {"shape": "eight", "size": (310, 66), "tilt": -0.15, "dir": -1, "arrive": 11.0}},
-    {"variety": "sanke", "seed": 692, "L": 128, "depth": 0.45, "cruise": 30, "colours": "course", "notice": 0.6,
-     "loop": {"shape": "oval", "size": (230, 75), "tilt": 0.1, "through": pi, "arrive": 4.5}},
-    {"variety": "kohaku", "seed": 498, "L": 135, "depth": 0.65, "cruise": 30, "colours": "vermilion", "notice": 0.5,
-     "loop": {"shape": "oval", "size": (250, 70), "tilt": -0.1, "through": 0, "dir": -1, "arrive": 17.0}},
-    {"variety": "sanke", "seed": 401, "L": 130, "depth": 0.6, "cruise": 28, "colours": "gold", "notice": 0.4,
-     "loop": {"shape": "eight", "size": (260, 55), "tilt": 0.3, "arrive": 9.0}},
+    {"variety": "kohaku", "seed": 13, "L": 150, "depth": 0.95, "cruise": 32, "colours": "course", "feeds": True, "notice": 0.1,
+     "still_at": 4, "lane": {"y": 150, "dir": 1, "pass": 3.0}},
+    {"variety": "sanke", "seed": 110, "L": 140, "depth": 0.75, "cruise": 32, "colours": "vermilion", "feeds": True, "notice": 0.2,
+     "still_at": 4, "lane": {"y": 210, "dir": -1, "pass": 2.5}},
+    {"variety": "tancho", "seed": 207, "L": 135, "depth": 0.55, "cruise": 30, "colours": "gold", "feeds": True, "notice": 0.4,
+     "still_at": 4, "lane": {"y": 115, "dir": -1, "pass": 4.0}},
+    {"variety": "kohaku", "seed": 304, "L": 145, "depth": 0.85, "cruise": 30, "colours": "sakura", "feeds": True, "notice": 0.3,
+     "lane": {"y": 230, "dir": 1, "pass": 4.5}},
+    {"variety": "sanke", "seed": 692, "L": 128, "depth": 0.45, "cruise": 30, "colours": "course",
+     "lane": {"y": 175, "dir": -1, "pass": 17}},
+    {"variety": "kohaku", "seed": 498, "L": 135, "depth": 0.65, "cruise": 30, "colours": "vermilion",
+     "lane": {"y": 120, "dir": 1, "pass": 22}},
+    {"variety": "sanke", "seed": 401, "L": 130, "depth": 0.6, "cruise": 28, "colours": "gold",
+     "lane": {"y": 215, "dir": 1, "pass": 27}},
 ]
 MOBILE_K = 2.0
-MOBILE_FEED = {"at": (420, 420), "count": 14, "spread": 85, "hand": (480, 680), "throw": 0.6, "cycle": 24, "at_load": 0}
+MOBILE_FEED = {"at": (420, 420), "count": 14, "spread": 85, "hand": (480, 680), "throw": 0.6, "cycle": 32, "at_load": 0}
 MOBILE_KOI = [
-    {"variety": "kohaku", "seed": 13, "L": 150, "depth": 0.95, "cruise": 32, "colours": "course", "notice": 0.1, "still_at": 4,
-     "loop": {"shape": "oval", "size": (300, 100), "through": pi / 2, "arrive": 2.0}},
-    {"variety": "sanke", "seed": 110, "L": 140, "depth": 0.75, "cruise": 32, "colours": "vermilion", "notice": 0.3, "still_at": 4,
-     "loop": {"shape": "oval", "size": (300, 85), "through": -pi / 2, "arrive": 12.5}},
-    {"variety": "tancho", "seed": 207, "L": 135, "depth": 0.55, "cruise": 30, "colours": "gold", "notice": 0.4, "still_at": 4,
-     "loop": {"shape": "eight", "size": (300, 110), "tilt": 0.15, "arrive": 6.5}},
-    {"variety": "kohaku", "seed": 304, "L": 145, "depth": 0.85, "cruise": 30, "colours": "sakura", "notice": 0.3,
-     "loop": {"shape": "oval", "size": (180, 120), "tilt": 0.3, "through": pi, "arrive": 16.0}},
-    {"variety": "sanke", "seed": 401, "L": 130, "depth": 0.6, "cruise": 30, "colours": "gold", "notice": 0.5,
-     "loop": {"shape": "oval", "size": (190, 115), "tilt": -0.3, "through": 0, "dir": -1, "arrive": 9.5}},
-    {"variety": "kohaku", "seed": 498, "L": 135, "depth": 0.65, "cruise": 30, "colours": "vermilion", "notice": 0.6,
-     "loop": {"shape": "eight", "size": (250, 90), "tilt": -0.5, "dir": -1, "arrive": 4.0}},
+    {"variety": "kohaku", "seed": 13, "L": 150, "depth": 0.95, "cruise": 32, "colours": "course", "feeds": True, "notice": 0.1,
+     "still_at": 4, "lane": {"y": 390, "dir": 1, "pass": 3.0}},
+    {"variety": "sanke", "seed": 110, "L": 140, "depth": 0.75, "cruise": 32, "colours": "vermilion", "feeds": True, "notice": 0.3,
+     "still_at": 4, "lane": {"y": 470, "dir": -1, "pass": 2.5}},
+    {"variety": "tancho", "seed": 207, "L": 135, "depth": 0.55, "cruise": 30, "colours": "gold", "feeds": True, "notice": 0.4,
+     "still_at": 4, "lane": {"y": 330, "dir": -1, "pass": 4.0}},
+    {"variety": "kohaku", "seed": 304, "L": 145, "depth": 0.85, "cruise": 30, "colours": "sakura", "feeds": True, "notice": 0.3,
+     "lane": {"y": 520, "dir": 1, "pass": 4.5}},
+    {"variety": "sanke", "seed": 401, "L": 130, "depth": 0.6, "cruise": 30, "colours": "gold",
+     "lane": {"y": 300, "dir": 1, "pass": 18}},
+    {"variety": "kohaku", "seed": 498, "L": 135, "depth": 0.65, "cruise": 30, "colours": "vermilion",
+     "lane": {"y": 440, "dir": -1, "pass": 25}},
 ]
 
 
