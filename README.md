@@ -1,27 +1,21 @@
 <a href="https://github.com/pursurer/ascii-koi" title="ASCII Koi: open the repo">
-  <img src="assets/song-of-hero.gif" alt="Song of Hero. Haojie Song, AI student at EPITA Paris: agent skills, research tools, open to 2027 internships. The name is drawn in text characters in an ASCII Koi pond: koi swim freely under the letters and light them up, food is thrown in, a cat's paw dips into the water, and the water turns from pond to black to light. Click to open the ASCII Koi repo." width="100%">
+  <img src="assets/song-of-hero-3x1.gif" alt="Song of Hero. Haojie Song, AI student at EPITA Paris. The name is drawn in text characters in an ASCII Koi pond: koi swim freely under the letters and light them up, food is thrown in, and the water turns from pond to black and back. Click to open the ASCII Koi repo." width="100%">
 </a>
 
-AI student at EPITA Paris. I build open-source tools with AI agents. My three current projects share one look: koi drawn in text characters, a black cat in character tiles, and black water.
+AI student at EPITA Paris. I build open-source tools with AI agents.
 
 > [!IMPORTANT]
 > **Open to 2027 AI engineering internships and AI research roles (research intern or RA).** [LinkedIn](https://www.linkedin.com/in/haojie-song/) · [X](https://x.com/Song_Of_Hero) · [haojie.song@epita.fr](mailto:haojie.song@epita.fr) · [pursuer.master@gmail.com](mailto:pursuer.master@gmail.com)
 
-### The ASCII Koi series: what I'm building now
+<p align="center">
+  <a href="https://pursurer.github.io/one-page-is-all-you-need/"><img src="assets/tile-one-page.gif" width="32%" alt="One Page is all you need: koi swim under the title, and the page scrolls to Today's five and the inbox"></a>
+  <a href="https://pursurer.github.io/ascii-koi/"><img src="assets/tile-ascii-koi.png" width="32%" alt="ASCII Koi: koi drawn in text characters swim around the title ASCII Koi on dark teal water"></a>
+  <a href="https://github.com/pursurer/codex-koi"><img src="assets/tile-codex-koi.gif" width="32%" alt="Codex Koi: on Codex's new-chat page the cat's paw dips into black water and the koi bolt, and a Shift-click turns the water blue and then light"></a>
+</p>
 
-<table>
-<tr>
-<td width="55%"><a href="https://pursurer.github.io/ascii-koi/"><img src="https://raw.githubusercontent.com/pursurer/ascii-koi/main/media/poster.png" alt="ASCII Koi: koi drawn in text characters swim around the title ASCII Koi on dark teal water" width="100%"></a></td>
-<td><b><a href="https://github.com/pursurer/ascii-koi">ASCII Koi</a></b><br>Your new tab is a koi pond, under a clock made of the same characters. Click for the cat's paw, right-click to feed the koi. Its <code>pond.js</code> is the engine the other two run, byte for byte.<br><br><a href="https://pursurer.github.io/ascii-koi/">Live pond</a> · <a href="https://github.com/pursurer/ascii-koi">Repo</a></td>
-</tr>
-<tr>
-<td width="55%"><a href="https://github.com/pursurer/codex-koi"><img src="https://raw.githubusercontent.com/pursurer/codex-koi/main/media/codex-koi.gif" alt="Codex's new-chat page with Codex Koi: the cat's paw dips into black water and the koi bolt, a Shift-click turns the water blue and then light, and the black cat pet sits by the prompt box" width="100%"></a></td>
-<td><b><a href="https://github.com/pursurer/codex-koi">Codex Koi</a></b><br>The pond behind the Codex desktop app's new-chat page. Up to 24 koi light up the heading as they swim under it, and a Shift-click turns the water black, blue or light. The black cat stays with you as your Codex pet while Codex works.<br><br><a href="https://github.com/pursurer/codex-koi#the-black-cat"><img src="https://raw.githubusercontent.com/pursurer/codex-koi/main/media/cat.gif" alt="The ASCII Cat Codex pet: a round black cat in dark character tiles with gold-ringed eyes, breathing and blinking" width="96"></a><br><a href="https://github.com/pursurer/codex-koi">Repo</a> · <a href="https://github.com/pursurer/codex-koi#the-black-cat">The black cat pet</a></td>
-</tr>
-<tr>
-<td width="55%"><a href="https://pursurer.github.io/one-page-is-all-you-need/"><img src="assets/one-page.gif" alt="One Page is all you need: koi drawn in text characters swim under the title One Page, is all you need; the page scrolls to Today's five and the inbox, and a click on the water calls the black cat" width="100%"></a></td>
-<td><b><a href="https://github.com/pursurer/one-page-is-all-you-need">One Page is all you need</a></b><br>Every morning an n8n agent reads my seven sources and writes me one page: the five things that matter today, opening on the koi pond. Where the koi and the cat began.<br><br><a href="https://pursurer.github.io/one-page-is-all-you-need/">Demo</a> · <a href="https://github.com/pursurer/one-page-is-all-you-need">Repo</a></td>
-</tr>
-</table>
+- **[One Page is all you need](https://github.com/pursurer/one-page-is-all-you-need)**: every morning an n8n agent reads my seven sources and writes me one page, the five things that matter today, each traced to its source. Where the koi and the cat began. [Demo](https://pursurer.github.io/one-page-is-all-you-need/)
+- **[Seedance production workflow](https://github.com/pursurer/seedance-awesome-director)**: an Agent Skill for Codex and Claude Code that takes a Seedance video from brief to storyboard to shot-by-shot QA. It ships in [awesome-seedance](https://github.com/LearnPrompt/awesome-seedance) (2.4k★).
+- **[ASCII Koi](https://github.com/pursurer/ascii-koi)**: your new tab is a koi pond, under a clock made of the same characters. Click for the cat's paw, right-click to feed the koi. Its `pond.js` is the engine the other two run, byte for byte. [Live pond](https://pursurer.github.io/ascii-koi/)
+- **[Codex Koi](https://github.com/pursurer/codex-koi)**: the pond behind the Codex desktop app's new-chat page. Up to 24 koi light up the heading as they swim under it, and [the black cat](https://github.com/pursurer/codex-koi#the-black-cat) stays with you as your Codex pet.
 
-Before the ASCII Koi series, I built paper tools (a [23,197-paper dataset](https://github.com/pursurer/top-ai-conference-papers), a scraper and a screening agent) and a Seedance video skill that ships in [awesome-seedance](https://github.com/LearnPrompt/awesome-seedance) (2.4k★); they are all in my [repositories](https://github.com/pursurer?tab=repositories).
+Everything else is in my [repositories](https://github.com/pursurer?tab=repositories).
